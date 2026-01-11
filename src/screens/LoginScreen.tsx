@@ -1,18 +1,14 @@
-import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { useState } from 'react';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
-  KeyboardAvoidingView,
   Platform,
-  ScrollView,
+  SafeAreaView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -20,200 +16,107 @@ import {
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
 
-  const handleLogin = () => {
-    // TODO: 로그인 로직 구현
-    console.log('Login:', email, password);
-    // 임시로 메인 페이지로 이동
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Main' }],
-    });
+  const handleGoogleLogin = () => {
+    // TODO: Google OAuth 로그인 로직 구현
+    console.log('Google Login');
+    // 처음 로그인 시 추가 정보 입력 화면으로 이동
+    // TODO: 실제로는 서버에서 사용자 정보 확인 후 분기 처리
+    navigation.navigate('AdditionalInfo');
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContainer}
-        keyboardShouldPersistTaps="handled">
-        {/* 로그인 폼 */}
-        <View
-          style={[
-            styles.formContainer,
-            { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
-          ]}>
-          <View
-            style={[
-              styles.formCard,
-              styles.shadow,
-              { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' },
-            ]}>
+    <SafeAreaView
+      style={[
+        styles.container,
+        { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#FFFFFF' },
+      ]}>
+      <View style={styles.content}>
+        <View style={styles.topSection}>
+          {/* 로고 영역 */}
+          <View style={styles.logoContainer}>
+            <View
+              style={[
+                styles.logoCircle,
+                { backgroundColor: colorScheme === 'dark' ? '#6366F1' : '#6366F1' },
+              ]}>
+              <Text style={styles.logoText}>LOGO</Text>
+            </View>
+          </View>
+
+          {/* 타이틀 */}
+          <View style={styles.titleContainer}>
             <Text
               style={[
-                styles.formTitle,
+                styles.title,
                 { color: colorScheme === 'dark' ? '#FFFFFF' : '#1E293B' },
               ]}>
-              로그인
+              가상 투자로 실력을
             </Text>
-
-            {/* 이메일 입력 */}
-            <View style={styles.inputGroup}>
-              <Text
-                style={[
-                  styles.label,
-                  { color: colorScheme === 'dark' ? '#E2E8F0' : '#475569' },
-                ]}>
-                이메일
-              </Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC',
-                    color: colorScheme === 'dark' ? '#FFFFFF' : '#1E293B',
-                    borderColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0',
-                  },
-                ]}
-                placeholder="example@email.com"
-                placeholderTextColor={colorScheme === 'dark' ? '#64748B' : '#94A3B8'}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-            </View>
-
-            {/* 비밀번호 입력 */}
-            <View style={styles.inputGroup}>
-              <Text
-                style={[
-                  styles.label,
-                  { color: colorScheme === 'dark' ? '#E2E8F0' : '#475569' },
-                ]}>
-                비밀번호
-              </Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC',
-                    color: colorScheme === 'dark' ? '#FFFFFF' : '#1E293B',
-                    borderColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0',
-                  },
-                ]}
-                placeholder="••••••••"
-                placeholderTextColor={colorScheme === 'dark' ? '#64748B' : '#94A3B8'}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoComplete="password"
-              />
-            </View>
-
-            {/* 로그인 버튼 */}
-            <TouchableOpacity
-              onPress={handleLogin}
-              activeOpacity={0.8}
-              style={[styles.loginButton, { backgroundColor: '#6366F1' }]}>
-              <Text style={styles.loginButtonText}>로그인</Text>
-            </TouchableOpacity>
-
-            {/* 비밀번호 찾기 */}
-            <TouchableOpacity style={styles.forgotPassword}>
-              <Text
-                style={[
-                  styles.forgotPasswordText,
-                  { color: colorScheme === 'dark' ? '#94A3B8' : '#64748B' },
-                ]}>
-                비밀번호를 잊으셨나요?
-              </Text>
-            </TouchableOpacity>
-
-            {/* 구분선 */}
-            <View style={styles.dividerContainer}>
-              <View
-                style={[
-                  styles.divider,
-                  { backgroundColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0' },
-                ]}
-              />
-              <Text
-                style={[
-                  styles.dividerText,
-                  { color: colorScheme === 'dark' ? '#64748B' : '#94A3B8' },
-                ]}>
-                또는
-              </Text>
-              <View
-                style={[
-                  styles.divider,
-                  { backgroundColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0' },
-                ]}
-              />
-            </View>
-
-            {/* 소셜 로그인 */}
-            <View style={styles.socialButtons}>
-              <TouchableOpacity
-                style={[
-                  styles.socialButton,
-                  {
-                    backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC',
-                    borderColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0',
-                  },
-                ]}>
-                <Text style={styles.socialIcon}>G</Text>
-                <Text
-                  style={[
-                    styles.socialText,
-                    { color: colorScheme === 'dark' ? '#E2E8F0' : '#475569' },
-                  ]}>
-                  Google
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.socialButton,
-                  {
-                    backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC',
-                    borderColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0',
-                  },
-                ]}>
-                <Text style={styles.socialIcon}>K</Text>
-                <Text
-                  style={[
-                    styles.socialText,
-                    { color: colorScheme === 'dark' ? '#E2E8F0' : '#475569' },
-                  ]}>
-                  Kakao
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* 회원가입 링크 */}
-          <View style={styles.signupContainer}>
             <Text
               style={[
-                styles.signupText,
-                { color: colorScheme === 'dark' ? '#94A3B8' : '#64748B' },
+                styles.title,
+                { color: colorScheme === 'dark' ? '#FFFFFF' : '#1E293B' },
               ]}>
-              계정이 없으신가요?{' '}
+              겨뤄보세요
             </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
-              <Text style={styles.signupLink}>회원가입</Text>
-            </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+        <View style={styles.bottomSection}>
+          {/* Google 로그인 버튼 */}
+          <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            onPress={handleGoogleLogin}
+            activeOpacity={0.8}
+            style={[
+              styles.socialButton,
+              styles.googleButton,
+              {
+                backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#FFFFFF',
+                borderColor: colorScheme === 'dark' ? '#E2E8F0' : '#E2E8F0',
+              },
+            ]}>
+            <Text style={styles.googleIcon}>G</Text>
+            <Text style={[styles.buttonText, { color: '#1E293B' }]}>
+              Google로 계속하기
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 구분선 및 약관 동의 */}
+        <View style={styles.footer}>
+          <View
+            style={[
+              styles.divider,
+              { backgroundColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0' },
+            ]}
+          />
+          <Text
+            style={[
+              styles.termsText,
+              { color: colorScheme === 'dark' ? '#94A3B8' : '#64748B' },
+            ]}>
+            계속하면 이용약관 및
+          </Text>
+          <Text
+            style={[
+              styles.termsText,
+              { color: colorScheme === 'dark' ? '#94A3B8' : '#64748B' },
+            ]}>
+            개인정보 처리방침에
+          </Text>
+          <Text
+            style={[
+              styles.termsText,
+              { color: colorScheme === 'dark' ? '#94A3B8' : '#64748B' },
+            ]}>
+            동의한 것으로 간주됩니다
+          </Text>
+        </View>
+        </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -221,120 +124,90 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  scrollContainer: {
-    flexGrow: 1,
-  },
-  formContainer: {
+  content: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 80,
-    paddingBottom: 24,
+    paddingHorizontal: 32,
+    justifyContent: 'space-between',
+    paddingTop: 60,
+    paddingBottom: 10,
   },
-  formCard: {
-    borderRadius: 24,
-    padding: 28,
-    marginBottom: 24,
+  topSection: {
+    paddingTop: 40,
   },
-  shadow: {
+  bottomSection: {
+    paddingBottom: 20,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  logoCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  titleContainer: {
+    alignItems: 'center',
+    marginBottom: 48,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '600',
+    lineHeight: 32,
+  },
+  buttonContainer: {
+    gap: 12,
+    marginBottom: 32,
+  },
+  socialButton: {
+    height: 56,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
+        shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
-        shadowRadius: 12,
+        shadowRadius: 4,
       },
       android: {
-        elevation: 6,
+        elevation: 2,
       },
     }),
   },
-  formTitle: {
-    fontSize: 28,
+  googleButton: {},
+  googleIcon: {
+    fontSize: 22,
     fontWeight: '700',
-    marginBottom: 28,
-    textAlign: 'center',
+    color: '#4285F4',
   },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
+  buttonText: {
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 8,
   },
-  input: {
-    height: 52,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-  },
-  loginButton: {
-    height: 52,
-    borderRadius: 12,
-    justifyContent: 'center',
+  footer: {
     alignItems: 'center',
-    marginTop: 8,
-  },
-  loginButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  forgotPassword: {
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  forgotPasswordText: {
-    fontSize: 14,
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 24,
+    paddingTop: 24,
   },
   divider: {
-    flex: 1,
+    width: '100%',
     height: 1,
+    marginBottom: 16,
   },
-  dividerText: {
-    marginHorizontal: 16,
-    fontSize: 14,
-  },
-  socialButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  socialButton: {
-    flex: 1,
-    height: 52,
-    borderWidth: 1,
-    borderRadius: 12,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-  },
-  socialIcon: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  socialText: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  signupContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  signupText: {
-    fontSize: 14,
-  },
-  signupLink: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#6366F1',
+  termsText: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
   },
 });

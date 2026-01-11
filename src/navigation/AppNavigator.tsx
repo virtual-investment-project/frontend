@@ -9,7 +9,7 @@ import TabNavigator from './TabNavigator';
 
 // Screens
 import LoginScreen from '../screens/LoginScreen';
-import SignupScreen from '../screens/SignupScreen';
+import AdditionalInfoScreen from '../screens/AdditionalInfoScreen';
 import BattleDetailScreen from '../screens/BattleDetailScreen';
 import CreateBattleScreen from '../screens/CreateBattleScreen';
 import MyScreen from '../screens/MyScreen';
@@ -23,7 +23,7 @@ export default function AppNavigator() {
         <NavigationContainer theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
             <Stack.Navigator initialRouteName="Main" screenOptions={{ headerShown: false }}>
                 <Stack.Screen name="Login" component={LoginScreen} />
-                <Stack.Screen name="Signup" component={SignupScreen} />
+                <Stack.Screen name="AdditionalInfo" component={AdditionalInfoScreen} />
                 <Stack.Screen name="Main" component={TabNavigator} />
                 <Stack.Screen name="BattleDetail" component={BattleDetailScreen} />
                 <Stack.Screen name="CreateBattle" component={CreateBattleScreen} />
