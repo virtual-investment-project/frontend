@@ -3,6 +3,7 @@
 export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
+  AdditionalInfo: undefined;
   Main: undefined;
   BattleDetail: { id: string };
   CreateBattle: undefined;
