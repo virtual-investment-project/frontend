@@ -3,8 +3,6 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useState } from 'react';
-
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
   Platform,
   SafeAreaView,
@@ -15,6 +13,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function AdditionalInfoScreen() {
   const navigation = useNavigation<NavigationProp>();
