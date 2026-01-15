@@ -2,6 +2,10 @@ import { useColorScheme } from '../hooks/useColorScheme';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import React, { useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin'; 
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
@@ -11,18 +15,78 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Linking, 
+  Alert,  
 } from 'react-native';
 
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const [loading, setLoading] = React.useState(false);
 
-  const handleGoogleLogin = () => {
-    // TODO: Google OAuth 로그인 로직 구현
-    console.log('Google Login');
-    // 처음 로그인 시 추가 정보 입력 화면으로 이동
-    // TODO: 실제로는 서버에서 사용자 정보 확인 후 분기 처리
-    navigation.navigate('AdditionalInfo');
+  useEffect(() => {
+    // 1. 구글 로그인 설정
+    GoogleSignin.configure({
+      webClientId: 'Input_Key.apps.googleusercontent.com', 
+      offlineAccess: true, 
+      forceCodeForRefreshToken: true,
+    });
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    try {
+      // 2. 구글 플레이 서비스 확인 및 로그인 시도
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo.data?.idToken;
+
+      if (!idToken) {
+        throw new Error('Google ID Token을 가져오지 못했습니다.');
+      }
+
+      console.log('Google ID Token 획득:', idToken.substring(0, 10) + '...');
+
+      // 3. 백엔드로 토큰 전송 (Localhost 대신 10.0.2.2 사용)
+      const response = await axios.post('http://10.0.2.2:8080/api/auth/google', {
+        idToken: idToken,
+      });
+
+      console.log('백엔드 로그인 성공:', response.data);
+      
+
+      // 4. 백엔드에서 받은 JWT 저장
+      const { accessToken, refreshToken, role } = response.data;
+
+      await AsyncStorage.multiSet([
+        ['accessToken', accessToken],
+        ['refreshToken', refreshToken],
+        ['role', role]
+      ]);
+      
+      // 5. 역할에 따른 화면 전환
+      if (role === 'GUEST') {
+        navigation.navigate('AdditionalInfo');
+      } else {
+        navigation.navigate('Main');
+      }
+
+    } catch (error: any) {
+      console.error('Login Error:', error);
+      
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        // 유저가 뒤로가기 등으로 로그인을 취소함 (조용히 넘어감)
+        console.log('User cancelled the login flow');
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        Alert.alert('안내', '이미 로그인이 진행 중입니다.');
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert('오류', '구글 플레이 서비스를 사용할 수 없습니다.');
+      } else {
+        Alert.alert('로그인 실패', '서버와 통신 중 오류가 발생했습니다.\n' + error.message);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

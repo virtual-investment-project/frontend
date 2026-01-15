@@ -7,9 +7,9 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function MyScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -24,26 +24,18 @@ export default function MyScreen() {
 
   // 내 정보 상태
   const [userInfo, setUserInfo] = useState({
-    username: 'investor123',
     email: 'user@example.com',
     nickname: '투자왕',
     lastName: '김',
     firstName: '철수',
     gender: '남성',
-    birthDate: '19900115',
     age: '36',
+    school: '서울대학교',
     job: '직장인',
   });
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedInfo, setEditedInfo] = useState({ ...userInfo });
-
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordData, setPasswordData] = useState({
-    current: '',
-    new: '',
-    confirm: '',
-  });
 
   // 내 계좌 임시 데이터
   const accountData = {
@@ -90,24 +82,6 @@ export default function MyScreen() {
     setEditedInfo({ ...userInfo });
   };
 
-  const handleChangePassword = () => {
-    if (passwordData.current === '') {
-      Alert.alert('오류', '현재 비밀번호를 입력해주세요.');
-      return;
-    }
-    if (passwordData.new !== passwordData.confirm) {
-      Alert.alert('오류', '새 비밀번호가 일치하지 않습니다.');
-      return;
-    }
-    if (passwordData.new.length < 8) {
-      Alert.alert('오류', '비밀번호는 8자 이상이어야 합니다.');
-      return;
-    }
-    Alert.alert('성공', '비밀번호가 변경되었습니다.');
-    setShowPasswordModal(false);
-    setPasswordData({ current: '', new: '', confirm: '' });
-  };
-
   const formatNumber = (num: number) => {
     return num.toLocaleString('ko-KR');
   };
@@ -116,11 +90,6 @@ export default function MyScreen() {
     <View>
       <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
         <ThemedText type="subtitle" style={styles.cardTitle}>내 정보</ThemedText>
-
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>아이디</Text>
-          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.username}</Text>
-        </View>
 
         <View style={styles.infoRow}>
           <Text style={[styles.infoLabel, { color: colors.icon }]}>이메일</Text>
@@ -176,15 +145,21 @@ export default function MyScreen() {
         </View>
 
         <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>생년월일</Text>
-          <Text style={[styles.infoValue, { color: colors.text }]}>
-            {userInfo.birthDate.substring(0, 4)}.{userInfo.birthDate.substring(4, 6)}.{userInfo.birthDate.substring(6, 8)}
-          </Text>
+          <Text style={[styles.infoLabel, { color: colors.icon }]}>나이</Text>
+          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.age}세</Text>
         </View>
 
         <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>나이</Text>
-          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.age}세</Text>
+          <Text style={[styles.infoLabel, { color: colors.icon }]}>학교</Text>
+          {isEditMode ? (
+            <TextInput
+              style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+              value={editedInfo.school}
+              onChangeText={(text) => setEditedInfo({ ...editedInfo, school: text })}
+            />
+          ) : (
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.school}</Text>
+          )}
         </View>
 
         <View style={styles.infoRow}>
@@ -231,16 +206,6 @@ export default function MyScreen() {
           )}
         </View>
       </View>
-
-      <TouchableOpacity
-        style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}
-        onPress={() => setShowPasswordModal(true)}>
-        <View style={styles.menuItem}>
-          <IconSymbol size={20} name="lock.fill" color={colors.tint} />
-          <ThemedText style={styles.menuText}>비밀번호 변경</ThemedText>
-          <IconSymbol size={16} name="chevron.right" color={colors.icon} />
-        </View>
-      </TouchableOpacity>
 
       <TouchableOpacity
         style={[styles.logoutButton, {
@@ -446,68 +411,6 @@ export default function MyScreen() {
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
-
-      {/* 비밀번호 변경 모달 */}
-      <Modal
-        visible={showPasswordModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowPasswordModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>비밀번호 변경</Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.icon }]}>현재 비밀번호</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                placeholder="현재 비밀번호"
-                placeholderTextColor={colors.icon}
-                value={passwordData.current}
-                onChangeText={(text) => setPasswordData({ ...passwordData, current: text })}
-                secureTextEntry
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.icon }]}>새 비밀번호</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                placeholder="새 비밀번호 (8자 이상, 특수문자 포함)"
-                placeholderTextColor={colors.icon}
-                value={passwordData.new}
-                onChangeText={(text) => setPasswordData({ ...passwordData, new: text })}
-                secureTextEntry
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.icon }]}>비밀번호 확인</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                placeholder="새 비밀번호 확인"
-                placeholderTextColor={colors.icon}
-                value={passwordData.confirm}
-                onChangeText={(text) => setPasswordData({ ...passwordData, confirm: text })}
-                secureTextEntry
-              />
-            </View>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}
-                onPress={() => setShowPasswordModal(false)}>
-                <Text style={[styles.modalButtonText, { color: colors.text }]}>취소</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: '#6366F1' }]}
-                onPress={handleChangePassword}>
-                <Text style={[styles.modalButtonText, { color: '#FFFFFF' }]}>변경</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -769,51 +672,5 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 40,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    borderRadius: 20,
-    padding: 24,
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  input: {
-    height: 48,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 15,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-  },
-  modalButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
   },
 });
