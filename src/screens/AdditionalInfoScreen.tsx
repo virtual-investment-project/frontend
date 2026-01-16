@@ -3,6 +3,8 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiClient from '../api/axiosInstance';
 import {
   Platform,
   SafeAreaView,
@@ -12,6 +14,8 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -24,15 +28,45 @@ export default function AdditionalInfoScreen() {
   const [age, setAge] = useState('');
   const [school, setSchool] = useState('');
   const [company, setCompany] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
-    // TODO: 추가 정보 저장 로직 구현
-    console.log('Additional Info:', { nickname, age, school, company });
-    // 메인 화면으로 이동
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Main' }],
-    });
+  const handleSubmit = async () => {
+    if (!isFormValid) return;
+
+    setLoading(true);
+    try {
+      // 백엔드로 추가 정보 전송
+      await apiClient.post('/api/users/additional-info', {
+        nickname: nickname.trim(),
+        age: parseInt(age, 10),
+        school: school.trim() || null,
+        company: company.trim() || null,
+      });
+
+      // Role을 USER로 업데이트
+      await AsyncStorage.setItem('role', 'USER');
+
+      Alert.alert('성공', '정보가 저장되었습니다!', [
+        {
+          text: '확인',
+          onPress: () => {
+            // 메인 화면으로 이동
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            });
+          },
+        },
+      ]);
+    } catch (error: any) {
+      console.error('Additional Info Error:', error);
+      Alert.alert(
+        '오류',
+        error.response?.data?.message || '정보 저장에 실패했습니다. 다시 시도해주세요.'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const isFormValid = nickname.trim() !== '' && age.trim() !== '';
@@ -183,20 +217,24 @@ export default function AdditionalInfoScreen() {
             <TouchableOpacity
               onPress={handleSubmit}
               activeOpacity={0.8}
-              disabled={!isFormValid}
+              disabled={!isFormValid || loading}
               style={[
                 styles.submitButton,
                 {
-                  backgroundColor: isFormValid ? '#6366F1' : colorScheme === 'dark' ? '#334155' : '#E2E8F0',
+                  backgroundColor: isFormValid && !loading ? '#6366F1' : colorScheme === 'dark' ? '#334155' : '#E2E8F0',
                 },
               ]}>
-              <Text
-                style={[
-                  styles.submitButtonText,
-                  { color: isFormValid ? '#FFFFFF' : colorScheme === 'dark' ? '#64748B' : '#94A3B8' },
-                ]}>
-                시작하기
-              </Text>
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text
+                  style={[
+                    styles.submitButtonText,
+                    { color: isFormValid ? '#FFFFFF' : colorScheme === 'dark' ? '#64748B' : '#94A3B8' },
+                  ]}>
+                  시작하기
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
