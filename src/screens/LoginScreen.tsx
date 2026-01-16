@@ -5,7 +5,8 @@ import { RootStackParamList } from '../navigation/types';
 import React, { useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin'; 
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import { GOOGLE_WEB_CLIENT_ID, API_BASE_URL } from '@env'; 
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
@@ -27,7 +28,7 @@ export default function LoginScreen() {
   useEffect(() => {
     // 1. 구글 로그인 설정
     GoogleSignin.configure({
-      webClientId: 'Input_Key.apps.googleusercontent.com', 
+      webClientId: GOOGLE_WEB_CLIENT_ID,
       offlineAccess: true, 
       forceCodeForRefreshToken: true,
     });
@@ -47,8 +48,8 @@ export default function LoginScreen() {
 
       console.log('Google ID Token 획득:', idToken.substring(0, 10) + '...');
 
-      // 3. 백엔드로 토큰 전송 (Localhost 대신 10.0.2.2 사용)
-      const response = await axios.post('http://10.0.2.2:8080/api/auth/google', {
+      // 3. 백엔드로 토큰 전송
+      const response = await axios.post(`${API_BASE_URL}/api/auth/google`, {
         idToken: idToken,
       });
 
