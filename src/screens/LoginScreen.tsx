@@ -6,7 +6,8 @@ import React, { useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
-import { GOOGLE_WEB_CLIENT_ID, API_BASE_URL } from '@env'; 
+import { GOOGLE_WEB_CLIENT_ID, API_BASE_URL } from '@env';
+import apiClient from '../api/axiosInstance'; 
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
