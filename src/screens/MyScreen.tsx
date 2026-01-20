@@ -6,10 +6,22 @@ import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useState, useEffect } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiClient from '../api/axiosInstance';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+interface UserProfile {
+  email: string;
+  name: string;
+  nickname: string;
+  age: number;
+  school: string;
+  company: string;
+}
 
 export default function MyScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -19,23 +31,42 @@ export default function MyScreen() {
   // 탭 상태
   const [activeTab, setActiveTab] = useState<'info' | 'account' | 'deposit'>('info');
 
+  // 로딩 상태
+  const [loading, setLoading] = useState(true);
+
   // 임시 어드민 상태
   const isAdmin = false;
 
   // 내 정보 상태
-  const [userInfo, setUserInfo] = useState({
-    email: 'user@example.com',
-    nickname: '투자왕',
-    lastName: '김',
-    firstName: '철수',
-    gender: '남성',
-    age: '36',
-    school: '서울대학교',
-    job: '직장인',
-  });
+  const [userInfo, setUserInfo] = useState<UserProfile | null>(null);
 
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editedInfo, setEditedInfo] = useState({ ...userInfo });
+  const [editedInfo, setEditedInfo] = useState({
+    school: '',
+    company: '',
+  });
+
+  // 컴포넌트 마운트 시 사용자 정보 로드
+  useEffect(() => {
+    fetchUserProfile();
+  }, []);
+
+  const fetchUserProfile = async () => {
+    try {
+      setLoading(true);
+      const response = await apiClient.get<UserProfile>('/api/mypage/profile');
+      setUserInfo(response.data);
+      setEditedInfo({
+        school: response.data.school || '',
+        company: response.data.company || '',
+      });
+    } catch (error: any) {
+      console.error('Profile Fetch Error:', error);
+      Alert.alert('오류', '사용자 정보를 불러오는데 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // 내 계좌 임시 데이터
   const accountData = {
@@ -59,89 +90,132 @@ export default function MyScreen() {
     ],
   };
 
-  const handleLogout = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
+  const handleLogout = async () => {
+    Alert.alert(
+      '로그아웃',
+      '정말 로그아웃 하시겠습니까?',
+      [
+        {
+          text: '취소',
+          style: 'cancel',
+        },
+        {
+          text: '로그아웃',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // 백엔드에 로그아웃 요청 (Refresh Token 무효화)
+              await apiClient.post('/api/mypage/logout');
+
+              // AsyncStorage의 토큰 및 사용자 정보 삭제
+              await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
+
+              // Google Sign-In 세션 종료
+              await GoogleSignin.signOut();
+
+              // 로그인 화면으로 이동
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+
+              Alert.alert('로그아웃 완료', '다시 로그인해주세요.');
+            } catch (error: any) {
+              console.error('Logout Error:', error);
+              
+              // 백엔드 요청 실패해도 로컬 데이터는 삭제하고 로그아웃 처리
+              await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
+              await GoogleSignin.signOut();
+              
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            }
+          },
+        },
+      ]
+    );
   };
 
-  const handleEditProfile = () => {
+  const handleEditProfile = async () => {
     if (isEditMode) {
-      setUserInfo({ ...editedInfo });
-      Alert.alert('성공', '프로필이 업데이트되었습니다.');
-      setIsEditMode(false);
+      try {
+        // 백엔드에 프로필 업데이트 요청
+        const response = await apiClient.patch<UserProfile>('/api/mypage/profile', {
+          school: editedInfo.school.trim() || null,
+          company: editedInfo.company.trim() || null,
+        });
+
+        // 서버에서 받은 최신 정보로 업데이트
+        setUserInfo(response.data);
+        Alert.alert('성공', '프로필이 업데이트되었습니다.');
+        setIsEditMode(false);
+      } catch (error: any) {
+        console.error('Profile Update Error:', error);
+        Alert.alert('오류', '프로필 업데이트에 실패했습니다.');
+      }
     } else {
       setIsEditMode(true);
-      setEditedInfo({ ...userInfo });
+      if (userInfo) {
+        setEditedInfo({
+          school: userInfo.school || '',
+          company: userInfo.company || '',
+        });
+      }
     }
   };
 
   const handleCancelEdit = () => {
     setIsEditMode(false);
-    setEditedInfo({ ...userInfo });
+    if (userInfo) {
+      setEditedInfo({
+        school: userInfo.school || '',
+        company: userInfo.company || '',
+      });
+    }
   };
 
   const formatNumber = (num: number) => {
     return num.toLocaleString('ko-KR');
   };
 
-  const renderInfoTab = () => (
+  const renderInfoTab = () => {
+    if (loading) {
+      return (
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingVertical: 60 }]}>
+          <ActivityIndicator size="large" color="#6366F1" />
+          <Text style={[{ color: colors.text, marginTop: 16 }]}>로딩 중...</Text>
+        </View>
+      );
+    }
+
+    if (!userInfo) {
+      return (
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingVertical: 60 }]}>
+          <Text style={[{ color: colors.text }]}>사용자 정보를 불러올 수 없습니다.</Text>
+        </View>
+      );
+    }
+
+    return (
     <View>
       <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
         <ThemedText type="subtitle" style={styles.cardTitle}>내 정보</ThemedText>
 
         <View style={styles.infoRow}>
           <Text style={[styles.infoLabel, { color: colors.icon }]}>이메일</Text>
-          {isEditMode ? (
-            <TextInput
-              style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-              value={editedInfo.email}
-              onChangeText={(text) => setEditedInfo({ ...editedInfo, email: text })}
-            />
-          ) : (
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.email}</Text>
-          )}
+          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.email}</Text>
         </View>
 
         <View style={styles.infoRow}>
           <Text style={[styles.infoLabel, { color: colors.icon }]}>닉네임</Text>
-          {isEditMode ? (
-            <TextInput
-              style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-              value={editedInfo.nickname}
-              onChangeText={(text) => setEditedInfo({ ...editedInfo, nickname: text })}
-            />
-          ) : (
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.nickname}</Text>
-          )}
+          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.nickname}</Text>
         </View>
 
         <View style={styles.infoRow}>
           <Text style={[styles.infoLabel, { color: colors.icon }]}>이름</Text>
-          {isEditMode ? (
-            <View style={{ flexDirection: 'row', gap: 8, flex: 1 }}>
-              <TextInput
-                style={[styles.infoInput, { flex: 1, backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                value={editedInfo.lastName}
-                onChangeText={(text) => setEditedInfo({ ...editedInfo, lastName: text })}
-                placeholder="성"
-              />
-              <TextInput
-                style={[styles.infoInput, { flex: 1, backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                value={editedInfo.firstName}
-                onChangeText={(text) => setEditedInfo({ ...editedInfo, firstName: text })}
-                placeholder="이름"
-              />
-            </View>
-          ) : (
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.lastName}{userInfo.firstName}</Text>
-          )}
-        </View>
-
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>성별</Text>
-          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.gender}</Text>
+          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.name}</Text>
         </View>
 
         <View style={styles.infoRow}>
@@ -156,30 +230,26 @@ export default function MyScreen() {
               style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
               value={editedInfo.school}
               onChangeText={(text) => setEditedInfo({ ...editedInfo, school: text })}
+              placeholder="학교명을 입력하세요"
+              placeholderTextColor={colors.icon}
             />
           ) : (
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.school}</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.school || '-'}</Text>
           )}
         </View>
 
         <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>직업</Text>
+          <Text style={[styles.infoLabel, { color: colors.icon }]}>회사</Text>
           {isEditMode ? (
-            <View style={[styles.pickerContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-              <Picker
-                selectedValue={editedInfo.job}
-                onValueChange={(value) => setEditedInfo({ ...editedInfo, job: value })}
-                style={{ color: colors.text }}>
-                <Picker.Item label="학생" value="학생" />
-                <Picker.Item label="직장인" value="직장인" />
-                <Picker.Item label="사업" value="사업" />
-                <Picker.Item label="전업주부" value="전업주부" />
-                <Picker.Item label="프리렌서" value="프리렌서" />
-                <Picker.Item label="기타" value="기타" />
-              </Picker>
-            </View>
+            <TextInput
+              style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+              value={editedInfo.company}
+              onChangeText={(text) => setEditedInfo({ ...editedInfo, company: text })}
+              placeholder="회사명을 입력하세요"
+              placeholderTextColor={colors.icon}
+            />
           ) : (
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.job}</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.company || '-'}</Text>
           )}
         </View>
 
@@ -217,6 +287,7 @@ export default function MyScreen() {
       </TouchableOpacity>
     </View>
   );
+};
 
   const renderAccountTab = () => (
     <View>
