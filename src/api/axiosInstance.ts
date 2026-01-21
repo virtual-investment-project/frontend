@@ -11,6 +11,25 @@ const apiClient = axios.create({
   },
 });
 
+// Refresh Token 갱신 중인지 추적
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (error: any) => void;
+}> = [];
+
+// 대기 중인 요청들을 처리
+const processQueue = (error: any = null, token: string | null = null) => {
+  failedQueue.forEach((promise) => {
+    if (error) {
+      promise.reject(error);
+    } else if (token) {
+      promise.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 // Request 인터셉터: 모든 요청에 Access Token 자동 추가
 apiClient.interceptors.request.use(
   async (config) => {
@@ -25,6 +44,84 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Response 인터셉터: 401 에러 시 자동으로 토큰 갱신
+apiClient.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  async (error) => {
+    const originalRequest = error.config;
+
+    // 401 에러이고, 재시도하지 않은 요청인 경우
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      // Refresh 엔드포인트에서 실패한 경우는 로그아웃 처리
+      if (originalRequest.url?.includes('/api/auth/refresh')) {
+        isRefreshing = false;
+        processQueue(error, null);
+        
+        // 토큰 삭제 및 로그인 화면으로 이동 (앱에서 처리하도록 에러 전파)
+        await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
+        return Promise.reject(error);
+      }
+
+      // 이미 토큰 갱신 중인 경우, 큐에 추가하고 대기
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return apiClient(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const refreshToken = await AsyncStorage.getItem('refreshToken');
+
+        if (!refreshToken) {
+          throw new Error('Refresh Token이 없습니다.');
+        }
+
+        // Refresh Token으로 새로운 토큰 요청
+        const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
+          refreshToken: refreshToken,
+        });
+
+        const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data;
+
+        // 새로운 토큰들을 저장 (Refresh Token도 갱신됨!)
+        await AsyncStorage.multiSet([
+          ['accessToken', newAccessToken],
+          ['refreshToken', newRefreshToken],
+        ]);
+
+        // 대기 중인 요청들에게 새 토큰 전달
+        processQueue(null, newAccessToken);
+
+        // 원래 요청 재시도
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        
+        // 토큰 갱신 실패 시 로그아웃 처리
+        await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
     return Promise.reject(error);
   }
 );

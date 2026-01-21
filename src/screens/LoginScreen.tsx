@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { GOOGLE_WEB_CLIENT_ID, API_BASE_URL } from '@env';
-import apiClient from '../api/axiosInstance'; 
+import { GoogleLoginResponse } from '../types/auth';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
@@ -17,7 +17,6 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Linking, 
   Alert,  
 } from 'react-native';
 
@@ -47,17 +46,12 @@ export default function LoginScreen() {
         throw new Error('Google ID Token을 가져오지 못했습니다.');
       }
 
-      console.log('Google ID Token 획득:', idToken.substring(0, 10) + '...');
-
       // 3. 백엔드로 토큰 전송
-      const response = await axios.post(`${API_BASE_URL}/api/auth/google`, {
+      const response = await axios.post<GoogleLoginResponse>(`${API_BASE_URL}/api/auth/google`, {
         idToken: idToken,
       });
 
-      console.log('백엔드 로그인 성공:', response.data);
-      
-
-      // 4. 백엔드에서 받은 JWT 저장
+      // 4. 백엔드에서 받은 JWT 저장 (Refresh Token도 함께 저장)
       const { accessToken, refreshToken, role } = response.data;
 
       await AsyncStorage.multiSet([
