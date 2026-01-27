@@ -4,7 +4,8 @@ import { TradingViewChart } from '../components/TradingViewChart';
 import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { Stock, searchSymbols } from '../types/tradingview';
-import { getFavorites, toggleFavorite, FavoriteSymbol } from '../utils/favorites';
+import { toggleFavorite } from '../utils/favorites';
+import { useFavoritesContext } from '../contexts/FavoritesContext';
 import { useCallback, useEffect, useState } from 'react';
 import { 
   ScrollView, 
@@ -19,22 +20,12 @@ import {
 export default function ChartScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const { favorites, refreshFavorites } = useFavoritesContext();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
-  const [favorites, setFavorites] = useState<FavoriteSymbol[]>([]);
   const [searchResults, setSearchResults] = useState<Stock[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
-
-  // 즐겨찾기 로드
-  const loadFavorites = useCallback(async () => {
-    const favs = await getFavorites();
-    setFavorites(favs);
-  }, []);
-
-  useEffect(() => {
-    loadFavorites();
-  }, [loadFavorites]);
 
   // 검색어 변경 처리
   useEffect(() => {
@@ -51,7 +42,7 @@ export default function ChartScreen() {
   // 즐겨찾기 토글
   const handleToggleFavorite = async (stock: Stock) => {
     const newIsFavorite = await toggleFavorite(stock.symbol, stock.name, stock.koreanName);
-    await loadFavorites();
+    await refreshFavorites();
     
     // 현재 선택된 종목이면 상태 업데이트
     if (selectedStock?.symbol === stock.symbol) {
@@ -68,7 +59,7 @@ export default function ChartScreen() {
   };
 
   // 즐겨찾기에서 종목 선택
-  const handleFavoriteSelect = (fav: FavoriteSymbol) => {
+  const handleFavoriteSelect = (fav: { symbol: string; name: string; koreanName?: string }) => {
     const stock: Stock = {
       symbol: fav.symbol,
       name: fav.name,
@@ -79,7 +70,7 @@ export default function ChartScreen() {
   };
 
   // 즐겨찾기 카드 렌더링
-  const renderFavoriteCard = (fav: FavoriteSymbol) => (
+  const renderFavoriteCard = (fav: { symbol: string; name: string; koreanName?: string }) => (
     <TouchableOpacity
       key={fav.symbol}
       style={[

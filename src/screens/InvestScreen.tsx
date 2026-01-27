@@ -2,21 +2,22 @@ import { ThemedText } from '../components/ThemedText';
 import { IconSymbol } from '../components/ui/IconSymbol';
 import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Stock, searchSymbols } from '../types/tradingview';
+import { toggleFavorite } from '../utils/favorites';
+import { useFavoritesContext, FavoriteWithPrice } from '../contexts/FavoritesContext';
 
-interface Stock {
-  symbol: string;
-  name: string;
-  currentPrice: number;
-  change: number;
-  changePercent: number;
-  marketCap: string;
+interface StockWithPrice extends Stock {
+  currentPrice?: number;
+  change?: number;
+  changePercent?: number;
+  marketCap?: string;
 }
 
 interface Order {
   id: string;
-  stock: Stock;
+  stock: StockWithPrice;
   type: 'buy' | 'sell';
   price: number;
   quantity: number;
@@ -28,69 +29,90 @@ interface Order {
 export default function InvestScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const { favorites, refreshFavorites } = useFavoritesContext();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
+  const [selectedStock, setSelectedStock] = useState<StockWithPrice | null>(null);
   const [orderType, setOrderType] = useState<'buy' | 'sell'>('buy');
   const [orderPrice, setOrderPrice] = useState('');
   const [orderQuantity, setOrderQuantity] = useState('');
   const [activeTab, setActiveTab] = useState<'search' | 'portfolio' | 'orders'>('search');
+  const [searchResults, setSearchResults] = useState<Stock[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
 
-  // 임시 주식 데이터
-  const stocks: Stock[] = [
-    {
-      symbol: 'NVDA',
-      name: 'NVIDIA Corporation',
-      currentPrice: 525.30,
-      change: 12.50,
-      changePercent: 2.43,
-      marketCap: '$1.29T',
-    },
-    {
-      symbol: 'AMD',
-      name: 'Advanced Micro Devices',
-      currentPrice: 142.80,
-      change: -1.20,
-      changePercent: -0.83,
-      marketCap: '$231B',
-    },
-    {
-      symbol: 'AAPL',
-      name: 'Apple Inc.',
-      currentPrice: 185.64,
-      change: 2.34,
-      changePercent: 1.28,
-      marketCap: '$2.85T',
-    },
-    {
-      symbol: 'TSLA',
-      name: 'Tesla, Inc.',
-      currentPrice: 238.45,
-      change: -5.23,
-      changePercent: -2.15,
-      marketCap: '$756B',
-    },
-    {
-      symbol: 'MSFT',
-      name: 'Microsoft Corporation',
-      currentPrice: 378.91,
-      change: 4.12,
-      changePercent: 1.10,
-      marketCap: '$2.82T',
-    },
-  ];
+
+
+  // 검색어 변경 처리
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      const results = searchSymbols(searchQuery, 'all');
+      setSearchResults(results);
+      setShowSearchResults(true);
+    } else {
+      setSearchResults([]);
+      setShowSearchResults(false);
+    }
+  }, [searchQuery]);
+
+  // 즐겨찾기 토글
+  const handleToggleFavorite = async (stock: Stock) => {
+    const newIsFavorite = await toggleFavorite(stock.symbol, stock.name, stock.koreanName);
+    await refreshFavorites();
+    
+    // 현재 선택된 종목이면 상태 업데이트
+    if (selectedStock?.symbol === stock.symbol) {
+      setSelectedStock({ ...selectedStock, isFavorite: newIsFavorite });
+    }
+  };
 
   // 임시 포트폴리오
   const portfolio = [
-    { stock: stocks[0], quantity: 10, avgPrice: 500.00, currentValue: 5253.00, profitLoss: 253.00, profitPercent: 5.06 },
-    { stock: stocks[1], quantity: 5, avgPrice: 150.00, currentValue: 714.00, profitLoss: -36.00, profitPercent: -4.80 },
+    { 
+      stock: { 
+        symbol: 'NASDAQ:NVDA', 
+        name: 'NVIDIA Corporation', 
+        koreanName: '엔비디아',
+        currentPrice: 525.30,
+        change: 12.50,
+        changePercent: 2.43,
+        marketCap: '$1.29T',
+      }, 
+      quantity: 10, 
+      avgPrice: 500.00, 
+      currentValue: 5253.00, 
+      profitLoss: 253.00, 
+      profitPercent: 5.06 
+    },
+    { 
+      stock: { 
+        symbol: 'NASDAQ:AMD', 
+        name: 'Advanced Micro Devices', 
+        koreanName: 'AMD',
+        currentPrice: 142.80,
+        change: -1.20,
+        changePercent: -0.83,
+        marketCap: '$231B',
+      }, 
+      quantity: 5, 
+      avgPrice: 150.00, 
+      currentValue: 714.00, 
+      profitLoss: -36.00, 
+      profitPercent: -4.80 
+    },
   ];
 
   // 임시 주문 내역
   const [orders, setOrders] = useState<Order[]>([
     {
       id: '1',
-      stock: stocks[0],
+      stock: {
+        symbol: 'NASDAQ:NVDA',
+        name: 'NVIDIA Corporation',
+        koreanName: '엔비디아',
+        currentPrice: 520.00,
+        change: 12.50,
+        changePercent: 2.43,
+      },
       type: 'buy',
       price: 520.00,
       quantity: 2,
@@ -102,15 +124,39 @@ export default function InvestScreen() {
 
   const userBalance = 10000000; // 사용 가능 금액
 
-  const filteredStocks = stocks.filter(
-    (stock) =>
-      stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      stock.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
+  // 종목 선택
   const handleStockSelect = (stock: Stock) => {
-    setSelectedStock(stock);
-    setOrderPrice(stock.currentPrice.toString());
+    const isFav = favorites.some(fav => fav.symbol === stock.symbol);
+    // 임시로 현재가 설정 (실제로는 API에서 가져와야 함)
+    const stockWithPrice: StockWithPrice = {
+      ...stock,
+      isFavorite: isFav,
+      currentPrice: 100.00,
+      change: 0,
+      changePercent: 0,
+      marketCap: 'N/A',
+    };
+    setSelectedStock(stockWithPrice);
+    setOrderPrice(stockWithPrice.currentPrice?.toString() || '100.00');
+    setOrderQuantity('');
+    setSearchQuery('');
+    setShowSearchResults(false);
+  };
+
+  // 즐겨찾기에서 종목 선택
+  const handleFavoriteSelect = (fav: FavoriteWithPrice) => {
+    const stockWithPrice: StockWithPrice = {
+      symbol: fav.symbol,
+      name: fav.name,
+      koreanName: fav.koreanName,
+      isFavorite: true,
+      currentPrice: fav.currentPrice,
+      change: fav.change,
+      changePercent: fav.changePercent,
+      marketCap: fav.marketCap,
+    };
+    setSelectedStock(stockWithPrice);
+    setOrderPrice(stockWithPrice.currentPrice?.toString() || '100.00');
     setOrderQuantity('');
   };
 
@@ -144,7 +190,7 @@ export default function InvestScreen() {
     }
 
     // 현재가와 주문가 비교
-    const currentPrice = selectedStock.currentPrice;
+    const currentPrice = selectedStock.currentPrice || 0;
     const isMarketOrder = price >= currentPrice;
 
     const newOrder: Order = {
@@ -181,16 +227,97 @@ export default function InvestScreen() {
   };
 
   const handleSetCurrentPrice = () => {
-    if (selectedStock) {
+    if (selectedStock && selectedStock.currentPrice) {
       setOrderPrice(selectedStock.currentPrice.toString());
     }
   };
 
   const handleSetPercentPrice = (percent: number) => {
-    if (selectedStock) {
+    if (selectedStock && selectedStock.currentPrice) {
       const newPrice = selectedStock.currentPrice * (1 + percent / 100);
       setOrderPrice(newPrice.toFixed(2));
     }
+  };
+
+  // 즐겨찾기 카드 렌더링
+  const renderFavoriteCard = (fav: FavoriteWithPrice) => (
+    <TouchableOpacity
+      key={fav.symbol}
+      style={[
+        styles.stockCard,
+        styles.shadow,
+        {
+          backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
+          borderColor: selectedStock?.symbol === fav.symbol ? '#6366F1' : 'transparent',
+          borderWidth: selectedStock?.symbol === fav.symbol ? 2 : 0,
+        },
+      ]}
+      onPress={() => handleFavoriteSelect(fav)}>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.stockSymbol, { color: colors.text }]}>
+          {fav.symbol.includes(':') ? fav.symbol.split(':')[1] : fav.symbol}
+        </Text>
+        <Text style={[styles.stockName, { color: colors.icon }]}>
+          {fav.koreanName || fav.name}
+        </Text>
+        <Text style={[styles.marketCap, { color: colors.icon }]}>시가총액: {fav.marketCap}</Text>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <Text style={[styles.stockPrice, { color: colors.text }]}>${fav.currentPrice.toFixed(2)}</Text>
+        <View style={styles.stockChangeRow}>
+          <IconSymbol
+            size={12}
+            name={fav.change >= 0 ? 'arrow.up' : 'arrow.down'}
+            color={fav.change >= 0 ? '#10B981' : '#EF4444'}
+          />
+          <Text style={[styles.stockChange, { color: fav.change >= 0 ? '#10B981' : '#EF4444' }]}>
+            {fav.change >= 0 ? '+' : ''}
+            {fav.change.toFixed(2)} ({fav.changePercent >= 0 ? '+' : ''}
+            {fav.changePercent.toFixed(2)}%)
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => handleToggleFavorite({ symbol: fav.symbol, name: fav.name, koreanName: fav.koreanName })}
+          style={styles.favoriteButtonInCard}>
+          <IconSymbol size={20} name="star.fill" color="#FCD34D" />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+
+  // 검색 결과 렌더링
+  const renderSearchResult = (stock: Stock) => {
+    const isFav = favorites.some(fav => fav.symbol === stock.symbol);
+    
+    return (
+      <TouchableOpacity
+        key={stock.symbol}
+        style={[
+          styles.searchResultCard,
+          {
+            backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
+          },
+        ]}
+        onPress={() => handleStockSelect(stock)}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.stockSymbol, { color: colors.text }]}>
+            {stock.symbol.includes(':') ? stock.symbol.split(':')[1] : stock.symbol}
+          </Text>
+          <Text style={[styles.stockName, { color: colors.icon }]}>
+            {stock.koreanName} · {stock.name}
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => handleToggleFavorite(stock)}
+          style={styles.favoriteButton}>
+          <IconSymbol 
+            size={22} 
+            name={isFav ? "star.fill" : "star"} 
+            color={isFav ? "#FCD34D" : colors.icon} 
+          />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    );
   };
 
   const renderSearchTab = () => (
@@ -200,7 +327,7 @@ export default function InvestScreen() {
         <IconSymbol size={20} name="magnifyingglass" color={colors.icon} />
         <TextInput
           style={[styles.searchInput, { color: colors.text }]}
-          placeholder="종목명 또는 티커 검색"
+          placeholder="종목명, 티커, 한글명 검색"
           placeholderTextColor={colors.icon}
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -212,44 +339,59 @@ export default function InvestScreen() {
         )}
       </View>
 
-      {/* 종목 리스트 */}
-      <View style={styles.stocksList}>
-        {filteredStocks.map((stock) => (
-          <TouchableOpacity
-            key={stock.symbol}
-            style={[
-              styles.stockCard,
-              styles.shadow,
-              {
-                backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
-                borderColor: selectedStock?.symbol === stock.symbol ? '#6366F1' : 'transparent',
-                borderWidth: selectedStock?.symbol === stock.symbol ? 2 : 0,
-              },
-            ]}
-            onPress={() => handleStockSelect(stock)}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.stockSymbol, { color: colors.text }]}>{stock.symbol}</Text>
-              <Text style={[styles.stockName, { color: colors.icon }]}>{stock.name}</Text>
-              <Text style={[styles.marketCap, { color: colors.icon }]}>시가총액: {stock.marketCap}</Text>
+      {/* 검색 결과 */}
+      {showSearchResults && searchResults.length > 0 && (
+        <View style={[styles.searchResultsContainer, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <Text style={[styles.searchResultsTitle, { color: colors.icon }]}>
+            검색 결과 ({searchResults.length})
+          </Text>
+          <View style={styles.searchResultsList}>
+            {searchResults.map(stock => renderSearchResult(stock))}
+          </View>
+        </View>
+      )}
+
+      {/* 검색 결과가 없을 때 */}
+      {showSearchResults && searchResults.length === 0 && (
+        <View style={[styles.searchResultsContainer, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <View style={styles.noResultsContainer}>
+            <IconSymbol size={40} name="magnifyingglass" color={colors.icon} />
+            <Text style={[styles.noResultsText, { color: colors.icon }]}>
+              "{searchQuery}"에 대한 검색 결과가 없습니다
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* 즐겨찾기 목록 또는 빈 상태 */}
+      {!showSearchResults && (
+        <>
+          {favorites.length === 0 ? (
+            <View style={styles.emptyState}>
+              <IconSymbol size={64} name="star" color={colors.icon} />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                즐겨찾기가 비어있습니다
+              </Text>
+              <Text style={[styles.emptyText, { color: colors.icon }]}>
+                종목을 검색하고 별 아이콘을 눌러{'\n'}
+                즐겨찾기에 추가해보세요
+              </Text>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[styles.stockPrice, { color: colors.text }]}>${stock.currentPrice.toFixed(2)}</Text>
-              <View style={styles.stockChangeRow}>
-                <IconSymbol
-                  size={12}
-                  name={stock.change >= 0 ? 'arrow.up' : 'arrow.down'}
-                  color={stock.change >= 0 ? '#10B981' : '#EF4444'}
-                />
-                <Text style={[styles.stockChange, { color: stock.change >= 0 ? '#10B981' : '#EF4444' }]}>
-                  {stock.change >= 0 ? '+' : ''}
-                  {stock.change.toFixed(2)} ({stock.changePercent >= 0 ? '+' : ''}
-                  {stock.changePercent.toFixed(2)}%)
+          ) : (
+            <View>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>즐겨찾기</Text>
+                <Text style={[styles.sectionCount, { color: colors.icon }]}>
+                  {favorites.length}개
                 </Text>
               </View>
+              <View style={styles.stocksList}>
+                {favorites.map(fav => renderFavoriteCard(fav))}
+              </View>
             </View>
-          </TouchableOpacity>
-        ))}
-      </View>
+          )}
+        </>
+      )}
     </View>
   );
 
@@ -274,8 +416,12 @@ export default function InvestScreen() {
           style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
           <View style={styles.portfolioHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.stockSymbol, { color: colors.text }]}>{item.stock.symbol}</Text>
-              <Text style={[styles.stockName, { color: colors.icon }]}>{item.stock.name}</Text>
+              <Text style={[styles.stockSymbol, { color: colors.text }]}>
+                {item.stock.symbol.includes(':') ? item.stock.symbol.split(':')[1] : item.stock.symbol}
+              </Text>
+              <Text style={[styles.stockName, { color: colors.icon }]}>
+                {item.stock.koreanName || item.stock.name}
+              </Text>
             </View>
             <TouchableOpacity
               style={[styles.tradeButton, { backgroundColor: '#EF4444' }]}
@@ -299,7 +445,9 @@ export default function InvestScreen() {
             </View>
             <View style={styles.detailRow}>
               <Text style={[styles.detailLabel, { color: colors.icon }]}>현재가</Text>
-              <Text style={[styles.detailValue, { color: colors.text }]}>${item.stock.currentPrice.toFixed(2)}</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>
+                ${item.stock.currentPrice?.toFixed(2) || '0.00'}
+              </Text>
             </View>
             <View style={styles.detailRow}>
               <Text style={[styles.detailLabel, { color: colors.icon }]}>평가금액</Text>
@@ -327,7 +475,9 @@ export default function InvestScreen() {
           <View style={styles.orderHeader}>
             <View style={{ flex: 1 }}>
               <View style={styles.orderTitleRow}>
-                <Text style={[styles.stockSymbol, { color: colors.text }]}>{order.stock.symbol}</Text>
+                <Text style={[styles.stockSymbol, { color: colors.text }]}>
+                  {order.stock.symbol.includes(':') ? order.stock.symbol.split(':')[1] : order.stock.symbol}
+                </Text>
                 <View
                   style={[
                     styles.orderStatusBadge,
@@ -441,9 +591,11 @@ export default function InvestScreen() {
           <View style={[styles.orderPanel, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
             <View style={styles.orderPanelHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.orderStockSymbol, { color: colors.text }]}>{selectedStock.symbol}</Text>
+                <Text style={[styles.orderStockSymbol, { color: colors.text }]}>
+                  {selectedStock.symbol.includes(':') ? selectedStock.symbol.split(':')[1] : selectedStock.symbol}
+                </Text>
                 <Text style={[styles.orderStockPrice, { color: colors.icon }]}>
-                  현재가: ${selectedStock.currentPrice.toFixed(2)}
+                  현재가: ${selectedStock.currentPrice?.toFixed(2) || '0.00'}
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setSelectedStock(null)}>
@@ -609,6 +761,74 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
   },
+  searchResultsContainer: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  searchResultsTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  searchResultsList: {
+    gap: 8,
+  },
+  searchResultCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+  },
+  noResultsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  noResultsText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 80,
+    gap: 16,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  emptyText: {
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  sectionCount: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  favoriteButton: {
+    padding: 8,
+  },
+  favoriteButtonInCard: {
+    padding: 6,
+    marginTop: 4,
+  },
   stocksList: {
     gap: 12,
   },
@@ -654,10 +874,6 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 16,
     marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    marginBottom: 8,
   },
   totalValue: {
     fontSize: 28,
@@ -753,14 +969,6 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 14,
     fontWeight: '700',
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 60,
-    gap: 12,
-  },
-  emptyText: {
-    fontSize: 15,
   },
   bottomSpacer: {
     height: 420,
