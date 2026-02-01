@@ -8,8 +8,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useState, useEffect } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from '../api/axiosInstance';
+import { clearAllTokens } from '../utils/tokenStorage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -107,8 +107,8 @@ export default function MyScreen() {
               // 백엔드에 로그아웃 요청 (Refresh Token 무효화)
               await apiClient.post('/api/mypage/logout');
 
-              // AsyncStorage의 토큰 및 사용자 정보 삭제
-              await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
+              // Keychain의 토큰 및 사용자 정보 삭제
+              await clearAllTokens();
 
               // Google Sign-In 세션 종료
               await GoogleSignin.signOut();
@@ -124,7 +124,7 @@ export default function MyScreen() {
               console.error('Logout Error:', error);
               
               // 백엔드 요청 실패해도 로컬 데이터는 삭제하고 로그아웃 처리
-              await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
+              await clearAllTokens();
               await GoogleSignin.signOut();
               
               navigation.reset({

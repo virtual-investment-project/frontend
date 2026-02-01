@@ -1,6 +1,6 @@
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '@env';
+import { getAccessToken, getRefreshToken, setAccessToken, setRefreshToken, clearAllTokens } from '../utils/tokenStorage';
 
 // Axios 인스턴스 생성
 const apiClient = axios.create({
@@ -33,8 +33,8 @@ const processQueue = (error: any = null, token: string | null = null) => {
 // Request 인터셉터: 모든 요청에 Access Token 자동 추가
 apiClient.interceptors.request.use(
   async (config) => {
-    // AsyncStorage에서 Access Token 가져오기
-    const accessToken = await AsyncStorage.getItem('accessToken');
+    // Keychain에서 Access Token 가져오기
+    const accessToken = await getAccessToken();
     
     if (accessToken) {
       // Authorization 헤더에 Bearer Token 추가
@@ -64,7 +64,7 @@ apiClient.interceptors.response.use(
         processQueue(error, null);
         
         // 토큰 삭제 및 로그인 화면으로 이동 (앱에서 처리하도록 에러 전파)
-        await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
+        await clearAllTokens();
         return Promise.reject(error);
       }
 
@@ -86,7 +86,7 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const refreshToken = await AsyncStorage.getItem('refreshToken');
+        const refreshToken = await getRefreshToken();
 
         if (!refreshToken) {
           throw new Error('Refresh Token이 없습니다.');
@@ -100,10 +100,8 @@ apiClient.interceptors.response.use(
         const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data;
 
         // 새로운 토큰들을 저장 (Refresh Token도 갱신됨!)
-        await AsyncStorage.multiSet([
-          ['accessToken', newAccessToken],
-          ['refreshToken', newRefreshToken],
-        ]);
+        await setAccessToken(newAccessToken);
+        await setRefreshToken(newRefreshToken);
 
         // 대기 중인 요청들에게 새 토큰 전달
         processQueue(null, newAccessToken);
@@ -115,7 +113,7 @@ apiClient.interceptors.response.use(
         processQueue(refreshError, null);
         
         // 토큰 갱신 실패 시 로그아웃 처리
-        await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
+        await clearAllTokens();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
