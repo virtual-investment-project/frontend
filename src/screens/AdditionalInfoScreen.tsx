@@ -3,8 +3,8 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from '../api/axiosInstance';
+import { setRole } from '../utils/tokenStorage';
 import {
   Platform,
   SafeAreaView,
@@ -44,7 +44,7 @@ export default function AdditionalInfoScreen() {
       });
 
       // Role을 USER로 업데이트
-      await AsyncStorage.setItem('role', 'USER');
+      await setRole('USER');
 
       Alert.alert('성공', '정보가 저장되었습니다!', [
         {

@@ -3,9 +3,9 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import React, { useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import { setTokens } from '../utils/tokenStorage';
 import { GOOGLE_WEB_CLIENT_ID, API_BASE_URL } from '@env';
 import { GoogleLoginResponse } from '../types/auth';
 
@@ -54,17 +54,20 @@ export default function LoginScreen() {
       // 4. 백엔드에서 받은 JWT 저장 (Refresh Token도 함께 저장)
       const { accessToken, refreshToken, role } = response.data;
 
-      await AsyncStorage.multiSet([
-        ['accessToken', accessToken],
-        ['refreshToken', refreshToken],
-        ['role', role]
-      ]);
+      // Keychain에 토큰 저장 (보안 저장소 사용)
+      await setTokens(accessToken, refreshToken, role);
       
       // 5. 역할에 따른 화면 전환
       if (role === 'GUEST') {
-        navigation.navigate('AdditionalInfo');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'AdditionalInfo' }],
+        });
       } else {
-        navigation.navigate('Main');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Main' }],
+        });
       }
 
     } catch (error: any) {
