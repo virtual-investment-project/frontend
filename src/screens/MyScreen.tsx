@@ -11,6 +11,8 @@ import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from '../api/axiosInstance';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { getPersonalAccount, createPersonalAccount } from '../services/accountService';
+import { AccountResponse } from '../types/api';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -33,12 +35,17 @@ export default function MyScreen() {
 
   // 로딩 상태
   const [loading, setLoading] = useState(true);
+  const [accountLoading, setAccountLoading] = useState(false);
 
   // 임시 어드민 상태
   const isAdmin = false;
 
   // 내 정보 상태
   const [userInfo, setUserInfo] = useState<UserProfile | null>(null);
+
+  // 계좌 정보 상태
+  const [personalAccount, setPersonalAccount] = useState<AccountResponse | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedInfo, setEditedInfo] = useState({
@@ -50,6 +57,13 @@ export default function MyScreen() {
   useEffect(() => {
     fetchUserProfile();
   }, []);
+
+  // 탭 변경 시 계좌 정보 로드
+  useEffect(() => {
+    if (activeTab === 'account') {
+      fetchPersonalAccount();
+    }
+  }, [activeTab]);
 
   const fetchUserProfile = async () => {
     try {
@@ -68,11 +82,52 @@ export default function MyScreen() {
     }
   };
 
-  // 내 계좌 임시 데이터
-  const accountData = {
-    deposit: 5000000,
-    totalValue: 7850000,
-    totalAssets: 12850000,
+  // 개인 계좌 조회
+  const fetchPersonalAccount = async () => {
+    try {
+      setAccountLoading(true);
+      setAccountError(null);
+      const account = await getPersonalAccount();
+      setPersonalAccount(account);
+    } catch (error: any) {
+      // 계좌가 없는 경우
+      if (error.response?.status === 404) {
+        setAccountError('계좌가 없습니다. 계좌를 생성해주세요.');
+      } else {
+        setAccountError('계좌 정보를 불러오는데 실패했습니다.');
+      }
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  // 개인 계좌 생성
+  const handleCreateAccount = async () => {
+    try {
+      setAccountLoading(true);
+      await createPersonalAccount();
+      Alert.alert('성공', '개인 계좌가 생성되었습니다.');
+      // 계좌 정보 다시 조회
+      await fetchPersonalAccount();
+    } catch (error: any) {
+
+      let errorMessage = '계좌 생성에 실패했습니다.';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.status === 500) {
+        errorMessage = '서버 오류가 발생했습니다. 백엔드에서 테스트용 사용자가 생성되어 있는지 확인해주세요.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      Alert.alert('오류', errorMessage);
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  // 임시 데이터 (보유 종목, 거래내역 등 - 추후 API 연동)
+  const mockData = {
     stocks: [
       { name: '삼성전자', quantity: 10, avgPrice: 70000, currentPrice: 75000, profitRate: 7.14, profit: 50000 },
       { name: 'SK하이닉스', quantity: 5, avgPrice: 120000, currentPrice: 135000, profitRate: 12.5, profit: 75000 },
@@ -122,11 +177,11 @@ export default function MyScreen() {
               Alert.alert('로그아웃 완료', '다시 로그인해주세요.');
             } catch (error: any) {
               console.error('Logout Error:', error);
-              
+
               // 백엔드 요청 실패해도 로컬 데이터는 삭제하고 로그아웃 처리
               await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'role']);
               await GoogleSignin.signOut();
-              
+
               navigation.reset({
                 index: 0,
                 routes: [{ name: 'Login' }],
@@ -199,203 +254,277 @@ export default function MyScreen() {
     }
 
     return (
-    <View>
-      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-        <ThemedText type="subtitle" style={styles.cardTitle}>내 정보</ThemedText>
+      <View>
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <ThemedText type="subtitle" style={styles.cardTitle}>내 정보</ThemedText>
 
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>이메일</Text>
-          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.email}</Text>
-        </View>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.icon }]}>이메일</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.email}</Text>
+          </View>
 
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>닉네임</Text>
-          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.nickname}</Text>
-        </View>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.icon }]}>닉네임</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.nickname}</Text>
+          </View>
 
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>이름</Text>
-          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.name}</Text>
-        </View>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.icon }]}>이름</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.name}</Text>
+          </View>
 
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>나이</Text>
-          <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.age}세</Text>
-        </View>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.icon }]}>나이</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.age}세</Text>
+          </View>
 
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>학교</Text>
-          {isEditMode ? (
-            <TextInput
-              style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-              value={editedInfo.school}
-              onChangeText={(text) => setEditedInfo({ ...editedInfo, school: text })}
-              placeholder="학교명을 입력하세요"
-              placeholderTextColor={colors.icon}
-            />
-          ) : (
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.school || '-'}</Text>
-          )}
-        </View>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.icon }]}>학교</Text>
+            {isEditMode ? (
+              <TextInput
+                style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                value={editedInfo.school}
+                onChangeText={(text) => setEditedInfo({ ...editedInfo, school: text })}
+                placeholder="학교명을 입력하세요"
+                placeholderTextColor={colors.icon}
+              />
+            ) : (
+              <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.school || '-'}</Text>
+            )}
+          </View>
 
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: colors.icon }]}>회사</Text>
-          {isEditMode ? (
-            <TextInput
-              style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-              value={editedInfo.company}
-              onChangeText={(text) => setEditedInfo({ ...editedInfo, company: text })}
-              placeholder="회사명을 입력하세요"
-              placeholderTextColor={colors.icon}
-            />
-          ) : (
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.company || '-'}</Text>
-          )}
-        </View>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.icon }]}>회사</Text>
+            {isEditMode ? (
+              <TextInput
+                style={[styles.infoInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                value={editedInfo.company}
+                onChangeText={(text) => setEditedInfo({ ...editedInfo, company: text })}
+                placeholder="회사명을 입력하세요"
+                placeholderTextColor={colors.icon}
+              />
+            ) : (
+              <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.company || '-'}</Text>
+            )}
+          </View>
 
-        <View style={styles.buttonRow}>
-          {isEditMode ? (
-            <>
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}
-                onPress={handleCancelEdit}>
-                <Text style={[styles.buttonText, { color: colors.text }]}>취소</Text>
-              </TouchableOpacity>
+          <View style={styles.buttonRow}>
+            {isEditMode ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.button, { backgroundColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}
+                  onPress={handleCancelEdit}>
+                  <Text style={[styles.buttonText, { color: colors.text }]}>취소</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.button, { backgroundColor: '#6366F1' }]}
+                  onPress={handleEditProfile}>
+                  <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>저장</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
               <TouchableOpacity
                 style={[styles.button, { backgroundColor: '#6366F1' }]}
                 onPress={handleEditProfile}>
-                <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>저장</Text>
+                <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>프로필 수정</Text>
               </TouchableOpacity>
-            </>
-          ) : (
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: '#6366F1' }]}
-              onPress={handleEditProfile}>
-              <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>프로필 수정</Text>
+            )}
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.logoutButton, {
+            backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
+            borderColor: '#EF4444'
+          }]}
+          onPress={handleLogout}>
+          <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '600' }}>로그아웃</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderAccountTab = () => {
+    // 로딩 상태
+    if (accountLoading) {
+      return (
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingVertical: 60 }]}>
+          <ActivityIndicator size="large" color="#6366F1" />
+          <Text style={[{ color: colors.text, marginTop: 16 }]}>계좌 정보 로딩 중...</Text>
+        </View>
+      );
+    }
+
+    // 계좌가 없는 경우
+    if (accountError || !personalAccount) {
+      return (
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingVertical: 40 }]}>
+          <IconSymbol size={48} name="creditcard" color={colors.icon} />
+          <Text style={[{ color: colors.text, marginTop: 16, marginBottom: 8, fontSize: 16, fontWeight: '600' }]}>
+            개인 계좌가 없습니다
+          </Text>
+          <Text style={[{ color: colors.icon, marginBottom: 20, textAlign: 'center' }]}>
+            {accountError || '투자를 시작하려면 먼저 계좌를 생성해주세요.'}
+          </Text>
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: '#6366F1', paddingHorizontal: 24 }]}
+            onPress={handleCreateAccount}>
+            <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>계좌 생성하기</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // 수익률 계산
+    const profitLoss = personalAccount.totalAsset - personalAccount.seedMoney;
+    const profitRate = personalAccount.seedMoney > 0
+      ? ((profitLoss / personalAccount.seedMoney) * 100)
+      : 0;
+
+    return (
+      <View>
+        {/* 계좌 요약 */}
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <ThemedText type="subtitle" style={styles.cardTitle}>계좌 요약</ThemedText>
+            <TouchableOpacity onPress={fetchPersonalAccount}>
+              <IconSymbol size={20} name="arrow.clockwise" color="#6366F1" />
             </TouchableOpacity>
+          </View>
+          <Text style={[{ color: colors.icon, fontSize: 12, marginBottom: 12 }]}>{personalAccount.name}</Text>
+          <View style={styles.accountSummary}>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: colors.icon }]}>현재 잔액</Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>${formatNumber(personalAccount.balance)}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: colors.icon }]}>시드머니</Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>${formatNumber(personalAccount.seedMoney)}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: colors.icon }]}>총 자산</Text>
+              <Text style={[styles.summaryValue, { color: '#6366F1', fontWeight: '700' }]}>
+                ${formatNumber(personalAccount.totalAsset)}
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: colors.icon }]}>수익/손실</Text>
+              <Text style={[styles.summaryValue, { color: profitLoss >= 0 ? '#10B981' : '#EF4444', fontWeight: '700' }]}>
+                {profitLoss >= 0 ? '+' : ''}{profitRate.toFixed(2)}%
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* 보유 종목 - 추후 API 연동 */}
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <ThemedText type="subtitle" style={styles.cardTitle}>보유 종목</ThemedText>
+          {mockData.stocks.length === 0 ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <Text style={{ color: colors.icon }}>보유 종목이 없습니다</Text>
+            </View>
+          ) : (
+            mockData.stocks.map((stock, index) => (
+              <View key={index} style={[styles.stockItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.stockName, { color: colors.text }]}>{stock.name}</Text>
+                  <Text style={[styles.stockDetail, { color: colors.icon }]}>
+                    {stock.quantity}주 • 평균 ${formatNumber(stock.avgPrice)}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={[styles.stockProfit, { color: stock.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
+                    {stock.profitRate > 0 ? '+' : ''}{stock.profitRate}%
+                  </Text>
+                  <Text style={[styles.stockDetail, { color: stock.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
+                    {stock.profit > 0 ? '+' : ''}${formatNumber(stock.profit)}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* 거래내역 - 추후 API 연동 */}
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <ThemedText type="subtitle" style={styles.cardTitle}>거래내역</ThemedText>
+          {mockData.transactions.length === 0 ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <Text style={{ color: colors.icon }}>거래내역이 없습니다</Text>
+            </View>
+          ) : (
+            mockData.transactions.map((tx, index) => (
+              <View key={index} style={[styles.transactionItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.transactionType, { color: tx.type === '매수' ? '#EF4444' : '#10B981' }]}>
+                    {tx.type}
+                  </Text>
+                  <Text style={[styles.transactionDetail, { color: colors.icon }]}>{tx.date}</Text>
+                  {tx.stock !== '-' && (
+                    <Text style={[styles.transactionDetail, { color: colors.text }]}>
+                      {tx.stock} {tx.quantity}주 @${formatNumber(tx.price)}
+                    </Text>
+                  )}
+                </View>
+                <Text style={[styles.transactionAmount, { color: tx.total > 0 ? '#10B981' : colors.text }]}>
+                  {tx.total > 0 ? '+' : ''}${formatNumber(Math.abs(tx.total))}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* 미체결 주문 - 추후 API 연동 */}
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <ThemedText type="subtitle" style={styles.cardTitle}>미체결 주문</ThemedText>
+          {mockData.pendingOrders.length === 0 ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <Text style={{ color: colors.icon }}>미체결 주문이 없습니다</Text>
+            </View>
+          ) : (
+            mockData.pendingOrders.map((order, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[styles.pendingItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}
+                onPress={() => Alert.alert('미체결 주문', '투자 페이지로 이동')}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.stockName, { color: colors.text }]}>{order.stock}</Text>
+                  <Text style={[styles.stockDetail, { color: colors.icon }]}>
+                    {order.type} {order.quantity}주 @${formatNumber(order.price)}
+                  </Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: '#F59E0B' }]}>
+                  <Text style={styles.statusText}>{order.status}</Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+
+        {/* 대결별 수익률 - 추후 API 연동 */}
+        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <ThemedText type="subtitle" style={styles.cardTitle}>대결별 수익률</ThemedText>
+          {mockData.battles.length === 0 ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <Text style={{ color: colors.icon }}>참여 중인 대결이 없습니다</Text>
+            </View>
+          ) : (
+            mockData.battles.map((battle, index) => (
+              <View key={index} style={[styles.battleItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.stockName, { color: colors.text }]}>{battle.name}</Text>
+                  <Text style={[styles.stockDetail, { color: colors.icon }]}>순위: {battle.rank}위</Text>
+                </View>
+                <Text style={[styles.stockProfit, { color: battle.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
+                  {battle.profitRate > 0 ? '+' : ''}{battle.profitRate}%
+                </Text>
+              </View>
+            ))
           )}
         </View>
       </View>
-
-      <TouchableOpacity
-        style={[styles.logoutButton, {
-          backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
-          borderColor: '#EF4444'
-        }]}
-        onPress={handleLogout}>
-        <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '600' }}>로그아웃</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-  const renderAccountTab = () => (
-    <View>
-      {/* 계좌 요약 */}
-      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-        <ThemedText type="subtitle" style={styles.cardTitle}>계좌 요약</ThemedText>
-        <View style={styles.accountSummary}>
-          <View style={styles.summaryItem}>
-            <Text style={[styles.summaryLabel, { color: colors.icon }]}>예수금</Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>₩{formatNumber(accountData.deposit)}</Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={[styles.summaryLabel, { color: colors.icon }]}>평가금액</Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>₩{formatNumber(accountData.totalValue)}</Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={[styles.summaryLabel, { color: colors.icon }]}>총 보유자산</Text>
-            <Text style={[styles.summaryValue, { color: '#6366F1', fontWeight: '700' }]}>
-              ₩{formatNumber(accountData.totalAssets)}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* 보유 종목 */}
-      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-        <ThemedText type="subtitle" style={styles.cardTitle}>보유 종목</ThemedText>
-        {accountData.stocks.map((stock, index) => (
-          <View key={index} style={[styles.stockItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.stockName, { color: colors.text }]}>{stock.name}</Text>
-              <Text style={[styles.stockDetail, { color: colors.icon }]}>
-                {stock.quantity}주 • 평균 ₩{formatNumber(stock.avgPrice)}
-              </Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[styles.stockProfit, { color: stock.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
-                {stock.profitRate > 0 ? '+' : ''}{stock.profitRate}%
-              </Text>
-              <Text style={[styles.stockDetail, { color: stock.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
-                {stock.profit > 0 ? '+' : ''}₩{formatNumber(stock.profit)}
-              </Text>
-            </View>
-          </View>
-        ))}
-      </View>
-
-      {/* 거래내역 */}
-      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-        <ThemedText type="subtitle" style={styles.cardTitle}>거래내역</ThemedText>
-        {accountData.transactions.map((tx, index) => (
-          <View key={index} style={[styles.transactionItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.transactionType, { color: tx.type === '매수' ? '#EF4444' : '#10B981' }]}>
-                {tx.type}
-              </Text>
-              <Text style={[styles.transactionDetail, { color: colors.icon }]}>{tx.date}</Text>
-              {tx.stock !== '-' && (
-                <Text style={[styles.transactionDetail, { color: colors.text }]}>
-                  {tx.stock} {tx.quantity}주 @₩{formatNumber(tx.price)}
-                </Text>
-              )}
-            </View>
-            <Text style={[styles.transactionAmount, { color: tx.total > 0 ? '#10B981' : colors.text }]}>
-              {tx.total > 0 ? '+' : ''}₩{formatNumber(Math.abs(tx.total))}
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      {/* 미체결 주문 */}
-      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-        <ThemedText type="subtitle" style={styles.cardTitle}>미체결 주문</ThemedText>
-        {accountData.pendingOrders.map((order, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[styles.pendingItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}
-            onPress={() => Alert.alert('미체결 주문', '투자 페이지로 이동')}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.stockName, { color: colors.text }]}>{order.stock}</Text>
-              <Text style={[styles.stockDetail, { color: colors.icon }]}>
-                {order.type} {order.quantity}주 @₩{formatNumber(order.price)}
-              </Text>
-            </View>
-            <View style={[styles.statusBadge, { backgroundColor: '#F59E0B' }]}>
-              <Text style={styles.statusText}>{order.status}</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* 대결별 수익률 */}
-      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-        <ThemedText type="subtitle" style={styles.cardTitle}>대결별 수익률</ThemedText>
-        {accountData.battles.map((battle, index) => (
-          <View key={index} style={[styles.battleItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.stockName, { color: colors.text }]}>{battle.name}</Text>
-              <Text style={[styles.stockDetail, { color: colors.icon }]}>순위: {battle.rank}위</Text>
-            </View>
-            <Text style={[styles.stockProfit, { color: battle.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
-              {battle.profitRate > 0 ? '+' : ''}{battle.profitRate}%
-            </Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderDepositTab = () => (
     <View>

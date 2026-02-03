@@ -142,7 +142,7 @@ export default function HomeScreen() {
               </View>
               <View style={styles.featureItem}>
                 <ThemedText style={styles.featureIcon}>💰</ThemedText>
-                <ThemedText style={styles.featureText}>1억원 시작</ThemedText>
+                <ThemedText style={styles.featureText}>$100K 시작</ThemedText>
               </View>
             </View>
           </View>

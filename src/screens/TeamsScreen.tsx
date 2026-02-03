@@ -2,135 +2,103 @@ import { ThemedText } from '../components/ThemedText';
 import { IconSymbol } from '../components/ui/IconSymbol';
 import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { getAllBattles } from '../services/battleService';
+import { BattleListResponse, BattleStatus } from '../types/api';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-
-type Category = '전체' | '미국주식' | '가상화폐' | '국내주식' | '기타';
-
-interface Team {
-  name: string;
-  profitRate: number;
-  rank: number;
-}
-
-interface Battle {
-  id: string;
-  title: string;
-  category: Category;
-  startDate: string;
-  endDate: string;
-  status: 'ongoing' | 'ended' | 'upcoming';
-  teams: Team[];
-  participantCount: number;
-}
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, RefreshControl } from 'react-native';
 
 export default function TeamsScreen() {
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
-  const [selectedCategory, setSelectedCategory] = useState<Category>('전체');
+  const [battles, setBattles] = useState<BattleListResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // 임시 대결 데이터
-  const battles: Battle[] = [
-    {
-      id: '1',
-      title: 'NVIDIA vs AMD - AI 반도체 대전',
-      category: '미국주식',
-      startDate: '2026.01.01',
-      endDate: '2026.01.31',
-      status: 'ongoing',
-      teams: [
-        { name: 'Team NVIDIA', profitRate: 12.5, rank: 1 },
-        { name: 'Team AMD', profitRate: 8.3, rank: 2 },
-      ],
-      participantCount: 24,
-    },
-    {
-      id: '2',
-      title: '비트코인 vs 이더리움 대결',
-      category: '가상화폐',
-      startDate: '2026.01.02',
-      endDate: '2026.01.30',
-      status: 'ongoing',
-      teams: [
-        { name: 'BTC Bulls', profitRate: 15.2, rank: 1 },
-        { name: 'ETH Warriors', profitRate: 18.7, rank: 1 },
-        { name: 'Crypto Mixers', profitRate: -2.1, rank: 3 },
-      ],
-      participantCount: 42,
-    },
-    {
-      id: '3',
-      title: '삼성전자 vs SK하이닉스',
-      category: '국내주식',
-      startDate: '2026.01.03',
-      endDate: '2026.02.03',
-      status: 'ongoing',
-      teams: [
-        { name: '삼성 투자단', profitRate: 7.1, rank: 1 },
-        { name: 'SK 지지자들', profitRate: 9.4, rank: 1 },
-      ],
-      participantCount: 18,
-    },
-    {
-      id: '4',
-      title: 'FAANG 대전 - 누가 최고인가',
-      category: '미국주식',
-      startDate: '2025.12.20',
-      endDate: '2026.01.20',
-      status: 'ongoing',
-      teams: [
-        { name: 'Meta Believers', profitRate: 22.3, rank: 1 },
-        { name: 'Apple Fans', profitRate: 14.8, rank: 2 },
-        { name: 'Google Gang', profitRate: 11.2, rank: 3 },
-        { name: 'Amazon Army', profitRate: 9.5, rank: 4 },
-      ],
-      participantCount: 67,
-    },
-    {
-      id: '5',
-      title: '알트코인 서바이벌',
-      category: '가상화폐',
-      startDate: '2026.01.15',
-      endDate: '2026.02.15',
-      status: 'upcoming',
-      teams: [
-        { name: 'Solana Squad', profitRate: 0, rank: 1 },
-        { name: 'Cardano Crew', profitRate: 0, rank: 1 },
-        { name: 'Polygon Players', profitRate: 0, rank: 1 },
-      ],
-      participantCount: 0,
-    },
-  ];
+  // 배틀 목록 불러오기
+  const fetchBattles = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+      
+      const data = await getAllBattles();
+      console.log('배틀 목록 조회 성공:', data);
+      setBattles(data);
+    } catch (err: any) {
+      console.error('배틀 목록 조회 오류:', err);
+      console.error('오류 상세:', err.code, err.message);
+      
+      // 에러 메시지를 더 상세하게 표시
+      let errorMsg = '배틀 목록을 불러오는데 실패했습니다.';
+      if (err.message === 'Network Error') {
+        errorMsg = '네트워크 오류: 서버에 연결할 수 없습니다.\n\n백엔드가 실행 중인지 확인하세요.';
+      } else if (err.code === 'ECONNABORTED') {
+        errorMsg = '연결 시간 초과: 서버 응답이 너무 느립니다.';
+      } else if (err.response) {
+        errorMsg = `서버 오류: ${err.response.status}`;
+      }
+      setError(errorMsg);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
-  const categories: Category[] = ['전체', '미국주식', '가상화폐', '국내주식', '기타'];
+  // 화면 포커스될 때마다 데이터 새로고침
+  useFocusEffect(
+    useCallback(() => {
+      fetchBattles();
+    }, [fetchBattles])
+  );
 
-  const filteredBattles = selectedCategory === '전체'
-    ? battles
-    : battles.filter(b => b.category === selectedCategory);
-
-  const getStatusBadge = (status: Battle['status']) => {
+  // 상태 배지 설정
+  const getStatusBadge = (status: BattleStatus) => {
     const config = {
-      ongoing: { text: '진행중', color: '#10B981' },
-      ended: { text: '종료', color: '#6B7280' },
-      upcoming: { text: '예정', color: '#F59E0B' },
+      YET: { text: '예정', color: '#F59E0B' },
+      PROGRESS: { text: '진행중', color: '#10B981' },
+      END: { text: '종료', color: '#6B7280' },
     };
     return config[status];
   };
 
+  // 날짜 포맷팅
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
+  };
+
+  // 총 참가자 수 계산
+  const getTotalParticipants = (teams: BattleListResponse['teams']) => {
+    return teams.reduce((sum, team) => sum + team.memberCount, 0);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-      <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContentContainer}>
+      <ScrollView 
+        style={styles.scrollContent} 
+        contentContainerStyle={styles.scrollContentContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => fetchBattles(true)}
+            tintColor={colors.icon}
+          />
+        }>
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <View>
-              <ThemedText type="title" style={styles.title}>팀 대결</ThemedText>
+              <ThemedText type="title" style={styles.title}>배틀</ThemedText>
               <ThemedText style={styles.subtitle}>실시간 수익률 대결을 확인하세요</ThemedText>
             </View>
             <TouchableOpacity
@@ -141,186 +109,203 @@ export default function TeamsScreen() {
           </View>
         </View>
 
-        {/* 카테고리 필터 */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filterContainer}
-          contentContainerStyle={styles.filterContent}>
-          {categories.map((category) => (
+        {/* 로딩 상태 */}
+        {loading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#6366F1" />
+            <Text style={[styles.loadingText, { color: colors.icon }]}>
+              배틀 목록을 불러오는 중...
+            </Text>
+          </View>
+        )}
+
+        {/* 에러 상태 */}
+        {error && !loading && (
+          <View style={styles.errorContainer}>
+            <IconSymbol size={48} name="exclamationmark.triangle" color="#EF4444" />
+            <Text style={[styles.errorText, { color: colors.text }]}>{error}</Text>
             <TouchableOpacity
-              key={category}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: selectedCategory === category
-                    ? '#6366F1'
-                    : colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
-                },
-                styles.shadow,
-              ]}
-              onPress={() => setSelectedCategory(category)}>
-              <Text style={[
-                styles.filterText,
-                { color: selectedCategory === category ? '#FFFFFF' : colors.text }
-              ]}>
-                {category}
-              </Text>
+              style={styles.retryButton}
+              onPress={() => fetchBattles()}>
+              <Text style={styles.retryButtonText}>다시 시도</Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          </View>
+        )}
 
         {/* 대결 목록 */}
-        <View style={styles.battlesContainer}>
-          {filteredBattles.map((battle) => {
-            const statusBadge = getStatusBadge(battle.status);
-            const topTeam = battle.teams.sort((a, b) => b.profitRate - a.profitRate)[0];
+        {!loading && !error && (
+          <View style={styles.battlesContainer}>
+            {battles.map((battle) => {
+              const statusBadge = getStatusBadge(battle.status);
+              const sortedTeams = [...battle.teams].sort((a, b) => b.rate - a.rate);
+              const participantCount = getTotalParticipants(battle.teams);
 
-            return (
-              <TouchableOpacity
-                key={battle.id}
-                style={[
-                  styles.battleCard,
-                  styles.shadow,
-                  { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }
-                ]}
-                onPress={() => navigation.navigate('BattleDetail', { id: battle.id })}>
+              return (
+                <TouchableOpacity
+                  key={battle.id}
+                  style={[
+                    styles.battleCard,
+                    styles.shadow,
+                    { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }
+                  ]}
+                  onPress={() => navigation.navigate('BattleDetail', { id: battle.id })}>
 
-                {/* 카드 헤더 */}
-                <View style={styles.battleHeader}>
-                  <View style={styles.battleTitleRow}>
-                    <Text style={[styles.battleTitle, { color: colors.text }]} numberOfLines={2}>
-                      {battle.title}
-                    </Text>
-                    <View style={[styles.statusBadge, { backgroundColor: statusBadge.color }]}>
-                      <Text style={styles.statusText}>{statusBadge.text}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.battleMeta}>
-                    <View style={styles.metaItem}>
-                      <IconSymbol size={14} name="calendar" color={colors.icon} />
-                      <Text style={[styles.metaText, { color: colors.icon }]}>
-                        {battle.startDate} - {battle.endDate}
+                  {/* 카드 헤더 */}
+                  <View style={styles.battleHeader}>
+                    <View style={styles.battleTitleRow}>
+                      <Text style={[styles.battleTitle, { color: colors.text }]} numberOfLines={2}>
+                        {battle.name || '이름 없는 배틀'}
                       </Text>
+                      <View style={[styles.statusBadge, { backgroundColor: statusBadge.color }]}>
+                        <Text style={styles.statusText}>{statusBadge.text}</Text>
+                      </View>
                     </View>
-                    <View style={styles.metaItem}>
-                      <IconSymbol size={14} name="person.2.fill" color={colors.icon} />
-                      <Text style={[styles.metaText, { color: colors.icon }]}>
-                        {battle.participantCount}명 참여
-                      </Text>
-                    </View>
-                  </View>
-                </View>
 
-                {/* 팀 순위 */}
-                <View style={styles.teamsSection}>
-                  {battle.teams
-                    .sort((a, b) => b.profitRate - a.profitRate)
-                    .slice(0, 3)
-                    .map((team, index) => (
-                      <View
-                        key={index}
-                        style={[
-                          styles.teamRow,
-                          index === 0 && styles.topTeamRow,
-                          index > 0 && {
-                            borderTopWidth: 1,
-                            borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB'
-                          }
-                        ]}>
-
-                        {/* 순위 배지 */}
-                        <View style={[
-                          styles.rankBadge,
-                          {
-                            backgroundColor: index === 0
-                              ? 'rgba(99, 102, 241, 0.1)'
-                              : colorScheme === 'dark' ? '#0F172A' : '#F8FAFC'
-                          }
-                        ]}>
-                          <Text style={[
-                            styles.rankText,
-                            { color: index === 0 ? '#6366F1' : colors.icon }
-                          ]}>
-                            {index + 1}
+                    <View style={styles.battleMeta}>
+                      <View style={styles.metaItem}>
+                        <IconSymbol size={14} name="calendar" color={colors.icon} />
+                        <Text style={[styles.metaText, { color: colors.icon }]}>
+                          {formatDate(battle.startAt)} - {formatDate(battle.endAt)}
+                        </Text>
+                      </View>
+                      <View style={styles.metaItem}>
+                        <IconSymbol size={14} name="person.2.fill" color={colors.icon} />
+                        <Text style={[styles.metaText, { color: colors.icon }]}>
+                          {participantCount}명 참여
+                        </Text>
+                      </View>
+                      {battle.ticker && (
+                        <View style={styles.metaItem}>
+                          <IconSymbol size={14} name="chart.line.uptrend.xyaxis" color={colors.icon} />
+                          <Text style={[styles.metaText, { color: colors.icon }]}>
+                            {battle.ticker}
                           </Text>
                         </View>
+                      )}
+                    </View>
+                  </View>
 
-                        {/* 팀 이름 */}
-                        <Text style={[
-                          styles.teamName,
-                          { color: colors.text },
-                          index === 0 && { fontWeight: '700' }
-                        ]}>
-                          {team.name}
-                        </Text>
+                  {/* 팀 순위 */}
+                  <View style={styles.teamsSection}>
+                    {sortedTeams.length > 0 ? (
+                      sortedTeams
+                        .slice(0, 3)
+                        .map((team, index) => (
+                          <View
+                            key={team.id}
+                            style={[
+                              styles.teamRow,
+                              index === 0 && styles.topTeamRow,
+                              index > 0 && {
+                                borderTopWidth: 1,
+                                borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB'
+                              }
+                            ]}>
 
-                        {/* 수익률 */}
-                        <View style={styles.profitContainer}>
-                          {battle.status !== 'upcoming' && (
-                            <>
-                              {index === 0 && (
-                                <IconSymbol
-                                  size={16}
-                                  name="crown.fill"
-                                  color="#F59E0B"
-                                  style={{ marginRight: 4 }}
-                                />
-                              )}
+                            {/* 순위 배지 */}
+                            <View style={[
+                              styles.rankBadge,
+                              {
+                                backgroundColor: index === 0
+                                  ? 'rgba(99, 102, 241, 0.1)'
+                                  : colorScheme === 'dark' ? '#0F172A' : '#F8FAFC'
+                              }
+                            ]}>
                               <Text style={[
-                                styles.profitRate,
-                                {
-                                  color: team.profitRate > 0 ? '#10B981' :
-                                    team.profitRate < 0 ? '#EF4444' : colors.icon,
-                                  fontWeight: index === 0 ? '800' : '600',
-                                }
+                                styles.rankText,
+                                { color: index === 0 ? '#6366F1' : colors.icon }
                               ]}>
-                                {team.profitRate > 0 ? '+' : ''}{team.profitRate}%
+                                {index + 1}
                               </Text>
-                            </>
-                          )}
-                          {battle.status === 'upcoming' && (
-                            <Text style={[styles.upcomingText, { color: colors.icon }]}>
-                              대기중
+                            </View>
+
+                            {/* 팀 이름 */}
+                            <Text style={[
+                              styles.teamName,
+                              { color: colors.text },
+                              index === 0 && { fontWeight: '700' }
+                            ]}>
+                              {team.name}
                             </Text>
-                          )}
-                        </View>
+
+                            {/* 수익률 */}
+                            <View style={styles.profitContainer}>
+                              {battle.status !== 'YET' && (
+                                <>
+                                  {index === 0 && (
+                                    <IconSymbol
+                                      size={16}
+                                      name="crown.fill"
+                                      color="#F59E0B"
+                                      style={{ marginRight: 4 }}
+                                    />
+                                  )}
+                                  <Text style={[
+                                    styles.profitRate,
+                                    {
+                                      color: team.rate > 0 ? '#10B981' :
+                                        team.rate < 0 ? '#EF4444' : colors.icon,
+                                      fontWeight: index === 0 ? '800' : '600',
+                                    }
+                                  ]}>
+                                    {team.rate > 0 ? '+' : ''}{team.rate.toFixed(1)}%
+                                  </Text>
+                                </>
+                              )}
+                              {battle.status === 'YET' && (
+                                <Text style={[styles.upcomingText, { color: colors.icon }]}>
+                                  대기중
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                        ))
+                    ) : (
+                      <View style={styles.noTeamsContainer}>
+                        <Text style={[styles.noTeamsText, { color: colors.icon }]}>
+                          아직 참가한 팀이 없습니다
+                        </Text>
                       </View>
-                    ))}
+                    )}
 
-                  {battle.teams.length > 3 && (
-                    <Text style={[styles.moreTeamsText, { color: colors.icon }]}>
-                      +{battle.teams.length - 3}개 팀 더보기
-                    </Text>
-                  )}
-                </View>
-
-                {/* 카드 푸터 */}
-                <View style={styles.battleFooter}>
-                  <View style={[styles.categoryTag, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-                    <Text style={[styles.categoryText, { color: colors.icon }]}>
-                      {battle.category}
-                    </Text>
+                    {sortedTeams.length > 3 && (
+                      <Text style={[styles.moreTeamsText, { color: colors.icon }]}>
+                        +{sortedTeams.length - 3}개 팀 더보기
+                      </Text>
+                    )}
                   </View>
-                  <View style={styles.viewDetailsButton}>
-                    <Text style={[styles.viewDetailsText, { color: '#6366F1' }]}>
-                      상세보기
-                    </Text>
-                    <IconSymbol size={14} name="chevron.right" color="#6366F1" />
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
 
-        {filteredBattles.length === 0 && (
+                  {/* 카드 푸터 */}
+                  <View style={styles.battleFooter}>
+                    <View style={[styles.categoryTag, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+                      <Text style={[styles.categoryText, { color: colors.icon }]}>
+                        {battle.type === 'ALL' ? '전체 대결' : '일반 대결'}
+                      </Text>
+                    </View>
+                    <View style={styles.viewDetailsButton}>
+                      <Text style={[styles.viewDetailsText, { color: '#6366F1' }]}>
+                        상세보기
+                      </Text>
+                      <IconSymbol size={14} name="chevron.right" color="#6366F1" />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        {!loading && !error && battles.length === 0 && (
           <View style={styles.emptyState}>
             <IconSymbol size={48} name="tray" color={colors.icon} />
             <Text style={[styles.emptyText, { color: colors.icon }]}>
-              해당 카테고리에 대결이 없습니다
+              아직 배틀이 없습니다
             </Text>
+            <TouchableOpacity
+              style={styles.createButton}
+              onPress={() => navigation.navigate('CreateBattle')}>
+              <Text style={styles.createButtonText}>새 배틀 만들기</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -370,17 +355,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  filterContainer: {
-    marginBottom: 20,
-  },
-  filterContent: {
-    gap: 10,
-    paddingVertical: 4,
-  },
-  filterChip: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+  battlesContainer: {
+    gap: 16,
   },
   shadow: {
     shadowColor: '#000',
@@ -388,13 +364,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
-  },
-  filterText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  battlesContainer: {
-    gap: 16,
   },
   battleCard: {
     borderRadius: 16,
@@ -515,5 +484,52 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 40,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  errorContainer: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    gap: 16,
+  },
+  errorText: {
+    fontSize: 15,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#6366F1',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  createButton: {
+    backgroundColor: '#6366F1',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  createButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  noTeamsContainer: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  noTeamsText: {
+    fontSize: 14,
   },
 });

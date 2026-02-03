@@ -1,33 +1,41 @@
 import React from 'react';
-import { TouchableOpacity, Platform, GestureResponderEvent, ViewStyle } from 'react-native';
+import { Pressable, Platform, StyleSheet } from 'react-native';
+import { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 
-interface HapticTabProps {
-    children: React.ReactNode;
-    style?: ViewStyle;
-    onPress?: (event: GestureResponderEvent) => void;
-    accessibilityRole?: 'button' | 'tab';
-    accessibilityState?: { selected?: boolean };
-    accessibilityLabel?: string;
-    testID?: string;
-}
+export type HapticTabProps = BottomTabBarButtonProps;
 
 /**
  * Tab button with haptic feedback
  * Note: For actual haptic feedback, install react-native-haptic-feedback
  */
-export function HapticTab({ children, style, onPress, ...props }: HapticTabProps) {
-    const handlePress = (event: GestureResponderEvent) => {
+export function HapticTab(props: HapticTabProps) {
+    const { style, children, accessibilityState, ...rest } = props;
+
+    const handlePress = () => {
         // Haptic feedback placeholder - install react-native-haptic-feedback for actual implementation
         if (Platform.OS === 'ios') {
             // You can add: import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
             // ReactNativeHapticFeedback.trigger('selection');
         }
-        onPress?.(event);
+        props.onPress?.({} as any);
     };
 
     return (
-        <TouchableOpacity style={style} onPress={handlePress} activeOpacity={0.7} {...props}>
+        <Pressable
+            style={[styles.button, style as any]}
+            onPress={handlePress}
+            accessibilityRole="button"
+            accessibilityState={accessibilityState}
+        >
             {children}
-        </TouchableOpacity>
+        </Pressable>
     );
 }
+
+const styles = StyleSheet.create({
+    button: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+});

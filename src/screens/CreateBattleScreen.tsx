@@ -7,11 +7,47 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useState } from 'react';
+import { createBattle } from '../services/battleService';
+import { BattleType, MetricType } from '../types/api';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-type Category = '미국주식' | '가상화폐' | '국내주식' | '기타';
+// 날짜 자동 포맷팅 (YYYYMMDD → YYYY-MM-DD)
+const formatDateInput = (text: string): string => {
+  // 숫자만 추출
+  const numbers = text.replace(/[^0-9]/g, '');
+
+  // 최대 8자리로 제한
+  const limited = numbers.slice(0, 8);
+
+  // 포맷팅
+  if (limited.length <= 4) {
+    return limited;
+  } else if (limited.length <= 6) {
+    return `${limited.slice(0, 4)}-${limited.slice(4)}`;
+  } else {
+    return `${limited.slice(0, 4)}-${limited.slice(4, 6)}-${limited.slice(6)}`;
+  }
+};
+
+// 시간 자동 포맷팅 (HHmmss → HH:mm:ss)
+const formatTimeInput = (text: string): string => {
+  // 숫자만 추출
+  const numbers = text.replace(/[^0-9]/g, '');
+
+  // 최대 6자리로 제한
+  const limited = numbers.slice(0, 6);
+
+  // 포맷팅
+  if (limited.length <= 2) {
+    return limited;
+  } else if (limited.length <= 4) {
+    return `${limited.slice(0, 2)}:${limited.slice(2)}`;
+  } else {
+    return `${limited.slice(0, 2)}:${limited.slice(2, 4)}:${limited.slice(4)}`;
+  }
+};
 
 export default function CreateBattleScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -20,83 +56,65 @@ export default function CreateBattleScreen() {
 
   const [step, setStep] = useState(1);
   const [battleData, setBattleData] = useState({
-    title: '',
-    description: '',
-    category: '미국주식' as Category,
-    startDate: '',
-    endDate: '',
-    teams: [
-      { name: '', slots: 10 },
-      { name: '', slots: 10 },
-    ],
+    name: '',
+    ticker: '',
+    type: 'NORMAL' as BattleType,
+    startAt: '',
+    endAt: '',
+    startTime: '09:00:00',
+    endTime: '18:00:00',
+    metricType: 'RATE' as MetricType,
+    valuationTime: '15:30:00',
+    initialCapital: 1000000,
+    memberCount: 20,
+    teamCount: 2,
   });
   const [inviteCode, setInviteCode] = useState('');
-
-  const categories: Category[] = ['미국주식', '가상화폐', '국내주식', '기타'];
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const generateInviteCode = () => {
     const code = Math.random().toString(36).substring(2, 10).toUpperCase();
     setInviteCode(code);
   };
 
-  const handleAddTeam = () => {
-    if (battleData.teams.length < 4) {
-      setBattleData({
-        ...battleData,
-        teams: [...battleData.teams, { name: '', slots: 10 }],
-      });
-    } else {
-      Alert.alert('알림', '최대 4개 팀까지 생성할 수 있습니다.');
-    }
-  };
-
-  const handleRemoveTeam = (index: number) => {
-    if (battleData.teams.length > 2) {
-      const newTeams = battleData.teams.filter((_, i) => i !== index);
-      setBattleData({ ...battleData, teams: newTeams });
-    } else {
-      Alert.alert('알림', '최소 2개 팀이 필요합니다.');
-    }
-  };
-
-  const handleUpdateTeam = (index: number, field: 'name' | 'slots', value: string | number) => {
-    const newTeams = [...battleData.teams];
-    newTeams[index] = { ...newTeams[index], [field]: value };
-    setBattleData({ ...battleData, teams: newTeams });
-  };
-
   const validateStep1 = () => {
-    if (!battleData.title.trim()) {
-      Alert.alert('오류', '대결 제목을 입력해주세요.');
+    if (!battleData.name.trim()) {
+      Alert.alert('오류', '대결 이름을 입력해주세요.');
       return false;
     }
-    if (!battleData.description.trim()) {
-      Alert.alert('오류', '대결 설명을 입력해주세요.');
+    if (!battleData.ticker.trim()) {
+      Alert.alert('오류', '종목 티커를 입력해주세요.');
+      return false;
+    }
+    if (battleData.initialCapital < 1) {
+      Alert.alert('오류', '초기 자금은 최소 $1 이상이어야 합니다.');
       return false;
     }
     return true;
   };
 
   const validateStep2 = () => {
-    if (!battleData.startDate || !battleData.endDate) {
-      Alert.alert('오류', '대결 기간을 입력해주세요.');
+    if (!battleData.startAt || !battleData.endAt || !battleData.startTime || !battleData.endTime) {
+      Alert.alert('오류', '대결 기간과 시간을 모두 입력해주세요.');
       return false;
     }
-    const start = new Date(battleData.startDate);
-    const end = new Date(battleData.endDate);
+    const start = new Date(`${battleData.startAt}T${battleData.startTime}`);
+    const end = new Date(`${battleData.endAt}T${battleData.endTime}`);
     if (end <= start) {
-      Alert.alert('오류', '종료일은 시작일보다 뒤여야 합니다.');
+      Alert.alert('오류', '종료 일시는 시작 일시보다 뒤여야 합니다.');
       return false;
     }
     return true;
   };
 
   const validateStep3 = () => {
-    for (let i = 0; i < battleData.teams.length; i++) {
-      if (!battleData.teams[i].name.trim()) {
-        Alert.alert('오류', `팀 ${i + 1}의 이름을 입력해주세요.`);
-        return false;
-      }
+    if (battleData.teamCount < 2) {
+      Alert.alert('오류', '최소 2개 팀이 필요합니다.');
+      return false;
+    }
+    if (battleData.memberCount < battleData.teamCount) {
+      Alert.alert('오류', '참가자 수는 팀 수보다 많아야 합니다.');
+      return false;
     }
     return true;
   };
@@ -107,8 +125,66 @@ export default function CreateBattleScreen() {
     } else if (step === 2 && validateStep2()) {
       setStep(3);
     } else if (step === 3 && validateStep3()) {
-      setStep(4);
+      handleCreateBattle();
+    }
+  };
+
+  const handleCreateBattle = async () => {
+    try {
+      setIsSubmitting(true);
+
+      const requestData = {
+        name: battleData.name,
+        ticker: battleData.ticker,
+        type: battleData.type,
+        startAt: `${battleData.startAt}T${battleData.startTime}`,
+        endAt: `${battleData.endAt}T${battleData.endTime}`,
+        metricType: battleData.metricType,
+        valuationTime: battleData.valuationTime,
+        initialCapital: battleData.initialCapital,
+        memberCount: battleData.memberCount,
+        teamCount: battleData.teamCount,
+      };
+
+      await createBattle(requestData);
+
       generateInviteCode();
+      setStep(4);
+    } catch (error: any) {
+
+      let errorMessage = '대결 생성에 실패했습니다.';
+      if (error.response?.status === 403) {
+        errorMessage = '권한이 없습니다. 로그인이 필요합니다.';
+        Alert.alert(
+          '로그인 필요',
+          '대결을 생성하려면 로그인이 필요합니다.',
+          [
+            { text: '취소', style: 'cancel' },
+            {
+              text: '로그인하기',
+              onPress: () => {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' as never }],
+                });
+              }
+            }
+          ]
+        );
+        return;
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message === 'Network Error') {
+        errorMessage = '서버에 연결할 수 없습니다. 백엔드 서버가 실행 중인지 확인하세요.';
+      } else if (error.response?.status === 401) {
+        errorMessage = '로그인이 필요합니다.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      Alert.alert('오류', errorMessage);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -165,7 +241,7 @@ export default function CreateBattleScreen() {
   );
 
   const renderStepIndicator = () => {
-    const stepTitles = ['대결 정보', '대결 기간', '팀 설정', '초대 코드'];
+    const stepTitles = ['기본 정보', '대결 기간', '설정', '초대 코드'];
     return (
       <View style={styles.stepIndicator}>
         <Text style={[styles.stepTitle, { color: colors.text }]}>
@@ -203,54 +279,79 @@ export default function CreateBattleScreen() {
         {renderProgressBar()}
         {renderStepIndicator()}
 
-        {/* Step 1: 대결 정보 */}
+        {/* Step 1: 기본 정보 */}
         {step === 1 && (
           <View style={styles.stepContent}>
             <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>
-                  대결 제목 <Text style={{ color: '#EF4444' }}>*</Text>
+                  대결 이름 <Text style={{ color: '#EF4444' }}>*</Text>
                 </Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                  placeholder="예: NVIDIA vs AMD - AI 반도체 대전"
+                  placeholder="예: NVIDIA vs AMD 대결"
                   placeholderTextColor={colors.icon}
-                  value={battleData.title}
-                  onChangeText={(text) => setBattleData({ ...battleData, title: text })}
+                  value={battleData.name}
+                  onChangeText={(text) => setBattleData({ ...battleData, name: text })}
                 />
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>
-                  대결 설명 <Text style={{ color: '#EF4444' }}>*</Text>
+                  종목 티커 <Text style={{ color: '#EF4444' }}>*</Text>
                 </Text>
                 <TextInput
-                  style={[
-                    styles.input,
-                    styles.textArea,
-                    { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }
-                  ]}
-                  placeholder="대결에 대한 설명을 입력하세요"
+                  style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                  placeholder="예: NVDA 또는 005930"
                   placeholderTextColor={colors.icon}
-                  value={battleData.description}
-                  onChangeText={(text) => setBattleData({ ...battleData, description: text })}
-                  multiline
-                  numberOfLines={4}
+                  value={battleData.ticker}
+                  onChangeText={(text) => setBattleData({ ...battleData, ticker: text })}
                 />
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>
-                  카테고리 <Text style={{ color: '#EF4444' }}>*</Text>
+                  대결 유형
                 </Text>
                 <View style={[styles.pickerContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
                   <Picker
-                    selectedValue={battleData.category}
-                    onValueChange={(value) => setBattleData({ ...battleData, category: value as Category })}
+                    selectedValue={battleData.type}
+                    onValueChange={(value) => setBattleData({ ...battleData, type: value as BattleType })}
                     style={{ color: colors.text }}>
-                    {categories.map((cat) => (
-                      <Picker.Item key={cat} label={cat} value={cat} />
-                    ))}
+                    <Picker.Item label="일반 대결" value="NORMAL" />
+                    <Picker.Item label="전체 대결" value="ALL" />
+                  </Picker>
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  초기 자금 <Text style={{ color: '#EF4444' }}>*</Text>
+                </Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                  placeholder="1000000"
+                  placeholderTextColor={colors.icon}
+                  value={String(battleData.initialCapital)}
+                  onChangeText={(text) => setBattleData({ ...battleData, initialCapital: Number(text) || 0 })}
+                  keyboardType="number-pad"
+                />
+                <Text style={[styles.helperText, { color: colors.icon }]}>
+                  달러($) 단위로 입력하세요
+                </Text>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  평가 기준
+                </Text>
+                <View style={[styles.pickerContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+                  <Picker
+                    selectedValue={battleData.metricType}
+                    onValueChange={(value) => setBattleData({ ...battleData, metricType: value as MetricType })}
+                    style={{ color: colors.text }}>
+                    <Picker.Item label="수익률 (%)" value="RATE" />
+                    <Picker.Item label="수익금 ($)" value="PROCEED" />
                   </Picker>
                 </View>
               </View>
@@ -268,14 +369,28 @@ export default function CreateBattleScreen() {
                 </Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                  placeholder="YYYY-MM-DD (예: 2026-01-05)"
+                  placeholder="YYYY-MM-DD (예: 20260201)"
                   placeholderTextColor={colors.icon}
-                  value={battleData.startDate}
-                  onChangeText={(text) => setBattleData({ ...battleData, startDate: text })}
+                  value={battleData.startAt}
+                  onChangeText={(text) => setBattleData({ ...battleData, startAt: formatDateInput(text) })}
+                  keyboardType="number-pad"
+                  maxLength={10}
                 />
-                <Text style={[styles.helperText, { color: colors.icon }]}>
-                  형식: YYYY-MM-DD
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  시작 시간 <Text style={{ color: '#EF4444' }}>*</Text>
                 </Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                  placeholder="HH:mm:ss (예: 090000)"
+                  placeholderTextColor={colors.icon}
+                  value={battleData.startTime}
+                  onChangeText={(text) => setBattleData({ ...battleData, startTime: formatTimeInput(text) })}
+                  keyboardType="number-pad"
+                  maxLength={8}
+                />
               </View>
 
               <View style={styles.inputGroup}>
@@ -284,92 +399,114 @@ export default function CreateBattleScreen() {
                 </Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                  placeholder="YYYY-MM-DD (예: 2026-02-05)"
+                  placeholder="YYYY-MM-DD (예: 20260228)"
                   placeholderTextColor={colors.icon}
-                  value={battleData.endDate}
-                  onChangeText={(text) => setBattleData({ ...battleData, endDate: text })}
+                  value={battleData.endAt}
+                  onChangeText={(text) => setBattleData({ ...battleData, endAt: formatDateInput(text) })}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  종료 시간 <Text style={{ color: '#EF4444' }}>*</Text>
+                </Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                  placeholder="HH:mm:ss (예: 180000)"
+                  placeholderTextColor={colors.icon}
+                  value={battleData.endTime}
+                  onChangeText={(text) => setBattleData({ ...battleData, endTime: formatTimeInput(text) })}
+                  keyboardType="number-pad"
+                  maxLength={8}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  평가 시간
+                </Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                  placeholder="HH:mm:ss (예: 153000)"
+                  placeholderTextColor={colors.icon}
+                  value={battleData.valuationTime}
+                  onChangeText={(text) => setBattleData({ ...battleData, valuationTime: formatTimeInput(text) })}
+                  keyboardType="number-pad"
+                  maxLength={8}
                 />
                 <Text style={[styles.helperText, { color: colors.icon }]}>
-                  형식: YYYY-MM-DD
+                  매일 수익률을 평가할 시간
                 </Text>
               </View>
 
               <View style={[styles.infoBox, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F1F5F9' }]}>
                 <IconSymbol size={20} name="info.circle.fill" color="#6366F1" />
                 <Text style={[styles.infoText, { color: colors.icon }]}>
-                  대결 기간은 최소 7일, 최대 90일까지 설정할 수 있습니다.
+                  숫자만 입력하면 자동으로 형식이 맞춰집니다
                 </Text>
               </View>
             </View>
           </View>
         )}
 
-        {/* Step 3: 팀 설정 */}
+        {/* Step 3: 설정 */}
         {step === 3 && (
           <View style={styles.stepContent}>
-            {battleData.teams.map((team, index) => (
-              <View
-                key={index}
-                style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-                <View style={styles.teamCardHeader}>
-                  <Text style={[styles.teamCardTitle, { color: colors.text }]}>
-                    팀 {index + 1}
+            <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  팀 수
+                </Text>
+                <View style={styles.slotSelector}>
+                  <TouchableOpacity
+                    style={[styles.slotButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
+                    onPress={() => setBattleData({ ...battleData, teamCount: Math.max(2, battleData.teamCount - 1) })}>
+                    <IconSymbol size={16} name="minus" color={colors.text} />
+                  </TouchableOpacity>
+                  <Text style={[styles.slotValue, { color: colors.text }]}>
+                    {battleData.teamCount}개
                   </Text>
-                  {battleData.teams.length > 2 && (
-                    <TouchableOpacity
-                      style={styles.removeTeamButton}
-                      onPress={() => handleRemoveTeam(index)}>
-                      <IconSymbol size={18} name="xmark.circle.fill" color="#EF4444" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>
-                    팀 이름 <Text style={{ color: '#EF4444' }}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                    placeholder={`예: Team ${index === 0 ? 'NVIDIA' : 'AMD'}`}
-                    placeholderTextColor={colors.icon}
-                    value={team.name}
-                    onChangeText={(text) => handleUpdateTeam(index, 'name', text)}
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>
-                    최대 인원
-                  </Text>
-                  <View style={styles.slotSelector}>
-                    <TouchableOpacity
-                      style={[styles.slotButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                      onPress={() => handleUpdateTeam(index, 'slots', Math.max(2, team.slots - 1))}>
-                      <IconSymbol size={16} name="minus" color={colors.text} />
-                    </TouchableOpacity>
-                    <Text style={[styles.slotValue, { color: colors.text }]}>
-                      {team.slots}명
-                    </Text>
-                    <TouchableOpacity
-                      style={[styles.slotButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                      onPress={() => handleUpdateTeam(index, 'slots', Math.min(50, team.slots + 1))}>
-                      <IconSymbol size={16} name="plus" color={colors.text} />
-                    </TouchableOpacity>
-                  </View>
+                  <TouchableOpacity
+                    style={[styles.slotButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
+                    onPress={() => setBattleData({ ...battleData, teamCount: Math.min(10, battleData.teamCount + 1) })}>
+                    <IconSymbol size={16} name="plus" color={colors.text} />
+                  </TouchableOpacity>
                 </View>
               </View>
-            ))}
 
-            {battleData.teams.length < 4 && (
-              <TouchableOpacity
-                style={[styles.addTeamButton, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}
-                onPress={handleAddTeam}>
-                <IconSymbol size={20} name="plus.circle.fill" color="#6366F1" />
-                <Text style={[styles.addTeamText, { color: '#6366F1' }]}>
-                  팀 추가하기
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  최대 참가자 수
                 </Text>
-              </TouchableOpacity>
-            )}
+                <View style={styles.slotSelector}>
+                  <TouchableOpacity
+                    style={[styles.slotButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
+                    onPress={() => setBattleData({ ...battleData, memberCount: Math.max(battleData.teamCount, battleData.memberCount - 1) })}>
+                    <IconSymbol size={16} name="minus" color={colors.text} />
+                  </TouchableOpacity>
+                  <Text style={[styles.slotValue, { color: colors.text }]}>
+                    {battleData.memberCount}명
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.slotButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
+                    onPress={() => setBattleData({ ...battleData, memberCount: Math.min(100, battleData.memberCount + 1) })}>
+                    <IconSymbol size={16} name="plus" color={colors.text} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={[styles.helperText, { color: colors.icon }]}>
+                  팀 수보다 많아야 합니다
+                </Text>
+              </View>
+
+              <View style={[styles.infoBox, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F1F5F9' }]}>
+                <IconSymbol size={20} name="info.circle.fill" color="#6366F1" />
+                <Text style={[styles.infoText, { color: colors.icon }]}>
+                  팀 수와 참가자 수를 설정하세요. 실제 팀 생성은 참가자들이 배틀에 참여하면서 자동으로 이루어집니다.
+                </Text>
+              </View>
+            </View>
           </View>
         )}
 
@@ -428,26 +565,40 @@ export default function CreateBattleScreen() {
               </Text>
 
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.icon }]}>제목</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>{battleData.title}</Text>
+                <Text style={[styles.summaryLabel, { color: colors.icon }]}>대결 이름</Text>
+                <Text style={[styles.summaryValue, { color: colors.text }]}>{battleData.name}</Text>
               </View>
 
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.icon }]}>카테고리</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>{battleData.category}</Text>
+                <Text style={[styles.summaryLabel, { color: colors.icon }]}>종목</Text>
+                <Text style={[styles.summaryValue, { color: colors.text }]}>{battleData.ticker}</Text>
               </View>
 
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: colors.icon }]}>기간</Text>
                 <Text style={[styles.summaryValue, { color: colors.text }]}>
-                  {battleData.startDate} ~ {battleData.endDate}
+                  {battleData.startAt} ~ {battleData.endAt}
+                </Text>
+              </View>
+
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: colors.icon }]}>초기 자금</Text>
+                <Text style={[styles.summaryValue, { color: colors.text }]}>
+                  ${battleData.initialCapital.toLocaleString()}
                 </Text>
               </View>
 
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: colors.icon }]}>팀 수</Text>
                 <Text style={[styles.summaryValue, { color: colors.text }]}>
-                  {battleData.teams.length}개 팀
+                  {battleData.teamCount}개
+                </Text>
+              </View>
+
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: colors.icon }]}>최대 참가자</Text>
+                <Text style={[styles.summaryValue, { color: colors.text }]}>
+                  {battleData.memberCount}명
                 </Text>
               </View>
             </View>
@@ -459,12 +610,13 @@ export default function CreateBattleScreen() {
       <View style={[styles.footer, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
         {step < 4 ? (
           <TouchableOpacity
-            style={[styles.nextButton, { backgroundColor: '#6366F1' }]}
-            onPress={handleNext}>
+            style={[styles.nextButton, { backgroundColor: isSubmitting ? '#9CA3AF' : '#6366F1' }]}
+            onPress={handleNext}
+            disabled={isSubmitting}>
             <Text style={styles.nextButtonText}>
-              {step === 3 ? '대결 생성하기' : '다음'}
+              {isSubmitting ? '생성 중...' : step === 3 ? '대결 생성하기' : '다음'}
             </Text>
-            <IconSymbol size={18} name="chevron.right" color="#FFFFFF" />
+            {!isSubmitting && <IconSymbol size={18} name="chevron.right" color="#FFFFFF" />}
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -612,9 +764,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
-  removeTeamButton: {
-    padding: 4,
-  },
   slotSelector: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -632,21 +781,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     minWidth: 60,
     textAlign: 'center',
-  },
-  addTeamButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#6366F1',
-    borderStyle: 'dashed',
-  },
-  addTeamText: {
-    fontSize: 15,
-    fontWeight: '700',
   },
   successIcon: {
     alignItems: 'center',
