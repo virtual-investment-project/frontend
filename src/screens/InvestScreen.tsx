@@ -3,10 +3,12 @@ import { IconSymbol } from '../components/ui/IconSymbol';
 import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { Stock, searchSymbols } from '../types/tradingview';
 import { toggleFavorite } from '../utils/favorites';
 import { useFavoritesContext, FavoriteWithPrice } from '../contexts/FavoritesContext';
+import { Account } from '../types/account';
 
 interface StockWithPrice extends Stock {
   currentPrice?: number;
@@ -40,7 +42,41 @@ export default function InvestScreen() {
   const [searchResults, setSearchResults] = useState<Stock[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
 
+  // 계좌 관련 상태
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
+  
+  // 투자 비율 관련 상태
+  const [investmentRatio, setInvestmentRatio] = useState(0); // 0 ~ 100%
+  const [investmentAmount, setInvestmentAmount] = useState(0); // 투자 금액 (원화)
 
+
+  // 임시 계좌 데이터 (API 연결 전)
+  useEffect(() => {
+    const dummyAccounts: Account[] = [
+      {
+        id: '1',
+        accountName: '투자계좌 1',
+        balance: 10000000,
+        totalAsset: 12000000,
+      },
+      {
+        id: '2',
+        accountName: '투자계좌 2',
+        balance: 5000000,
+        totalAsset: 6500000,
+      },
+      {
+        id: '3',
+        accountName: '단기매매',
+        balance: 3000000,
+        totalAsset: 3200000,
+      },
+    ];
+    setAccounts(dummyAccounts);
+    setSelectedAccount(dummyAccounts[0]);
+  }, []);
 
   // 검색어 변경 처리
   useEffect(() => {
@@ -139,6 +175,8 @@ export default function InvestScreen() {
     setSelectedStock(stockWithPrice);
     setOrderPrice(stockWithPrice.currentPrice?.toString() || '100.00');
     setOrderQuantity('');
+    setInvestmentRatio(0);
+    setInvestmentAmount(0);
     setSearchQuery('');
     setShowSearchResults(false);
   };
@@ -158,6 +196,70 @@ export default function InvestScreen() {
     setSelectedStock(stockWithPrice);
     setOrderPrice(stockWithPrice.currentPrice?.toString() || '100.00');
     setOrderQuantity('');
+    setInvestmentRatio(0);
+    setInvestmentAmount(0);
+  };
+
+  // 투자 비율 변경 시 금액 및 수량 자동 계산
+  const handleInvestmentRatioChange = (ratio: number) => {
+    setInvestmentRatio(ratio);
+    
+    if (!selectedAccount || !orderPrice) return;
+    
+    let baseAmount = 0;
+    if (orderType === 'buy') {
+      // 매수: 잔액 기반
+      baseAmount = selectedAccount.balance;
+    } else {
+      // 매도: 보유 수량 기반 (임시로 0으로 설정, 추후 포트폴리오 데이터 연동)
+      baseAmount = 0; // TODO: 실제 보유 수량 * 현재가
+    }
+    
+    const amount = Math.floor((baseAmount * ratio) / 100);
+    setInvestmentAmount(amount);
+    
+    // 수량 자동 계산: 투자금액 / 주문가격
+    const price = parseFloat(orderPrice);
+    if (price > 0) {
+      const quantity = amount / price;
+      setOrderQuantity(quantity.toFixed(8)); // 소수점 8자리까지
+    }
+  };
+
+  // 주문가격 변경 시 수량 재계산
+  const handleOrderPriceChange = (price: string) => {
+    setOrderPrice(price);
+    
+    const priceNum = parseFloat(price);
+    if (priceNum > 0 && investmentAmount > 0) {
+      const quantity = investmentAmount / priceNum;
+      setOrderQuantity(quantity.toFixed(8));
+    }
+  };
+
+  // 수량 직접 입력 시 투자금액, 비율 역계산
+  const handleQuantityChange = (quantity: string) => {
+    setOrderQuantity(quantity);
+    
+    const quantityNum = parseFloat(quantity);
+    const priceNum = parseFloat(orderPrice);
+    
+    if (quantityNum > 0 && priceNum > 0 && selectedAccount) {
+      const amount = Math.floor(quantityNum * priceNum);
+      setInvestmentAmount(amount);
+      
+      let baseAmount = 0;
+      if (orderType === 'buy') {
+        baseAmount = selectedAccount.balance;
+      } else {
+        baseAmount = 0; // TODO: 실제 보유 수량 * 현재가
+      }
+      
+      if (baseAmount > 0) {
+        const ratio = Math.min((amount / baseAmount) * 100, 100);
+        setInvestmentRatio(ratio);
+      }
+    }
   };
 
   const calculateTotal = () => {
@@ -627,56 +729,74 @@ export default function InvestScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* 가격 입력 */}
+            <ScrollView style={styles.orderFormScroll} showsVerticalScrollIndicator={false}>
+            {/* 계좌 선택 */}
             <View style={styles.inputGroup}>
-              <View style={styles.inputHeader}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>주문가격 (USD)</Text>
-                <View style={styles.pricePresets}>
-                  <TouchableOpacity
-                    style={[styles.presetButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                    onPress={handleSetCurrentPrice}>
-                    <Text style={[styles.presetButtonText, { color: colors.icon }]}>현재가</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.presetButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                    onPress={() => handleSetPercentPrice(-5)}>
-                    <Text style={[styles.presetButtonText, { color: colors.icon }]}>-5%</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.presetButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                    onPress={() => handleSetPercentPrice(5)}>
-                    <Text style={[styles.presetButtonText, { color: colors.icon }]}>+5%</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>계좌 선택</Text>
+              <TouchableOpacity
+                style={[styles.accountSelector, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
+                onPress={() => setShowAccountPicker(true)}>
+                <Text style={[styles.accountName, { color: colors.text }]}>
+                  {selectedAccount?.accountName || '계좌를 선택하세요'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* 주문가격 입력 */}
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>주문가격</Text>
               <TextInput
                 style={[styles.orderInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
                 placeholder="0.00"
                 placeholderTextColor={colors.icon}
                 value={orderPrice}
-                onChangeText={setOrderPrice}
+                onChangeText={handleOrderPriceChange}
                 keyboardType="decimal-pad"
               />
             </View>
 
-            {/* 수량 입력 */}
+            {/* 투자 비율 슬라이더 */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>주문수량</Text>
+              <View style={styles.sliderHeader}>
+                <Text style={[styles.inputLabelInline, { color: colors.text }]}>투자 비율</Text>
+                <Text style={[styles.currentBalance, { color: colors.icon }]}>
+                  ({orderType === 'buy' ? '현재잔액' : '보유 수량'}: {orderType === 'buy' ? `₩${selectedAccount?.balance.toLocaleString() || '0'}` : '0'})
+                </Text>
+              </View>
+              <View style={styles.sliderContainer}>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={0}
+                  maximumValue={100}
+                  step={1}
+                  value={investmentRatio}
+                  onValueChange={handleInvestmentRatioChange}
+                  minimumTrackTintColor="#10B981"
+                  maximumTrackTintColor={colorScheme === 'dark' ? '#334155' : '#E2E8F0'}
+                  thumbTintColor="#10B981"
+                />
+                <Text style={[styles.ratioText, { color: '#10B981' }]}>{Math.round(investmentRatio)}%</Text>
+              </View>
+            </View>
+
+            {/* 예상 수량 */}
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>예상 수량</Text>
               <TextInput
                 style={[styles.orderInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
                 placeholder="0"
                 placeholderTextColor={colors.icon}
                 value={orderQuantity}
-                onChangeText={setOrderQuantity}
-                keyboardType="number-pad"
+                onChangeText={handleQuantityChange}
+                keyboardType="decimal-pad"
               />
             </View>
 
-            {/* 총 금액 */}
+            {/* 총 주문금액 */}
             <View style={[styles.totalContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
               <Text style={[styles.totalLabel, { color: colors.icon }]}>총 주문금액</Text>
               <Text style={[styles.totalAmount, { color: orderType === 'buy' ? '#10B981' : '#EF4444' }]}>
-                ₩{calculateTotal().toLocaleString()}
+                ₩{investmentAmount.toLocaleString()}
               </Text>
             </View>
 
@@ -686,8 +806,48 @@ export default function InvestScreen() {
               onPress={handleOrder}>
               <Text style={styles.submitButtonText}>{orderType === 'buy' ? '매수' : '매도'} 주문하기</Text>
             </TouchableOpacity>
+
+            </ScrollView>
           </View>
         )}
+
+        {/* 계좌 선택 모달 */}
+        <Modal
+          visible={showAccountPicker}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowAccountPicker(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>계좌 선택</Text>
+                <TouchableOpacity onPress={() => setShowAccountPicker(false)}>
+                  <IconSymbol size={24} name="xmark.circle.fill" color={colors.icon} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.accountList}>
+                {accounts.map((account) => (
+                  <TouchableOpacity
+                    key={account.id}
+                    style={[
+                      styles.accountItem,
+                      { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
+                      selectedAccount?.id === account.id && styles.selectedAccountItem,
+                    ]}
+                    onPress={() => {
+                      setSelectedAccount(account);
+                      setShowAccountPicker(false);
+                      setInvestmentRatio(0);
+                      setInvestmentAmount(0);
+                      setOrderQuantity('');
+                    }}>
+                    <Text style={[styles.accountItemName, { color: colors.text }]}>{account.accountName}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </View>
     </View>
   );
@@ -971,7 +1131,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   bottomSpacer: {
-    height: 420,
+    height: 500,
   },
   orderPanel: {
     position: 'absolute',
@@ -986,6 +1146,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
+    maxHeight: '85%',
   },
   orderPanelHeader: {
     flexDirection: 'row',
@@ -1009,7 +1170,7 @@ const styles = StyleSheet.create({
   orderTypeButton: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
   },
   orderTypeButtonText: {
@@ -1019,35 +1180,56 @@ const styles = StyleSheet.create({
   inputGroup: {
     marginBottom: 16,
   },
-  inputHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
   inputLabel: {
     fontSize: 14,
     fontWeight: '600',
+    marginBottom: 8,
   },
-  pricePresets: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  presetButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  presetButtonText: {
-    fontSize: 11,
+  inputLabelInline: {
+    fontSize: 14,
     fontWeight: '600',
+  },
+  accountSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+  },
+  accountName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  orderFormScroll: {
+    maxHeight: 400,
+  },
+  sliderHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    marginBottom: 8,
+  },
+  currentBalance: {
+    fontSize: 13,
+  },
+  sliderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  slider: {
+    flex: 1,
+    height: 40,
+  },
+  ratioText: {
+    fontSize: 16,
+    fontWeight: '700',
+    width: 50,
+    textAlign: 'right',
   },
   orderInput: {
-    height: 48,
+    padding: 16,
     borderRadius: 12,
-    paddingHorizontal: 16,
     fontSize: 16,
-    fontWeight: '600',
   },
   totalContainer: {
     flexDirection: 'row',
@@ -1059,20 +1241,57 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     fontSize: 14,
+    fontWeight: '600',
   },
   totalAmount: {
     fontSize: 20,
     fontWeight: '800',
   },
   submitButton: {
-    height: 52,
+    paddingVertical: 16,
     borderRadius: 12,
-    justifyContent: 'center',
     alignItems: 'center',
   },
   submitButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  accountList: {
+    maxHeight: 400,
+  },
+  accountItem: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  selectedAccountItem: {
+    borderWidth: 2,
+    borderColor: '#10B981',
+  },
+  accountItemName: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
