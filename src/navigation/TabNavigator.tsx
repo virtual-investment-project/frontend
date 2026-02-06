@@ -43,7 +43,7 @@ export default function TabNavigator() {
                 name="Teams"
                 component={TeamsScreen}
                 options={{
-                    title: '팀',
+                    title: '배틀',
                     tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.3.fill" color={color} />,
                 }}
             />
