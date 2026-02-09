@@ -9,6 +9,8 @@ import { Stock, searchSymbols } from '../types/tradingview';
 import { toggleFavorite } from '../utils/favorites';
 import { useFavoritesContext, FavoriteWithPrice } from '../contexts/FavoritesContext';
 import { Account } from '../types/account';
+import { getPersonalAccount } from '../services/accountService';
+import { createOrder, getOrdersByAccount, cancelOrder, OrderResponse } from '../services/orderService';
 
 interface StockWithPrice extends Stock {
   currentPrice?: number;
@@ -55,30 +57,25 @@ export default function InvestScreen() {
   const [investmentAmount, setInvestmentAmount] = useState(0); // 투자 금액 (원화)
 
 
-  // 임시 계좌 데이터 (API 연결 전)
+  // 계좌 정보 조회
   useEffect(() => {
-    const dummyAccounts: Account[] = [
-      {
-        id: '1',
-        accountName: '투자계좌 1',
-        balance: 10000000,
-        totalAsset: 12000000,
-      },
-      {
-        id: '2',
-        accountName: '투자계좌 2',
-        balance: 5000000,
-        totalAsset: 6500000,
-      },
-      {
-        id: '3',
-        accountName: '단기매매',
-        balance: 3000000,
-        totalAsset: 3200000,
-      },
-    ];
-    setAccounts(dummyAccounts);
-    setSelectedAccount(dummyAccounts[0]);
+    const fetchAccount = async () => {
+      try {
+        const data = await getPersonalAccount();
+        const account: Account = {
+          id: data.id,
+          accountName: data.name,
+          balance: data.balance,
+          totalAsset: data.totalAsset,
+        };
+        setAccounts([account]);
+        setSelectedAccount(account);
+      } catch (error) {
+        console.error('계좌 조회 실패:', error);
+      }
+    };
+
+    fetchAccount();
   }, []);
 
   // 검색어 변경 처리
@@ -141,25 +138,39 @@ export default function InvestScreen() {
   ];
 
   // 임시 주문 내역
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: '1',
-      stock: {
-        symbol: 'NASDAQ:NVDA',
-        name: 'NVIDIA Corporation',
-        koreanName: '엔비디아',
-        currentPrice: 520.00,
-        change: 12.50,
-        changePercent: 2.43,
-      },
-      type: 'buy',
-      price: 520.00,
-      quantity: 2,
-      totalAmount: 1040.00,
-      status: 'pending',
-      orderTime: '2026.01.04 09:30',
-    },
-  ]);
+  const [orders, setOrders] = useState<Order[]>([]);
+
+  // 주문 목록 조회
+  const fetchOrders = useCallback(async () => {
+    if (!selectedAccount) return;
+
+    try {
+      const data = await getOrdersByAccount(selectedAccount.id);
+      const formattedOrders: Order[] = data.map((order: OrderResponse) => ({
+        id: order.id,
+        stock: {
+          symbol: order.stockCode,
+          name: order.stockName,
+          koreanName: order.stockName,
+        },
+        type: order.orderType.toLowerCase() as 'buy' | 'sell',
+        price: parseFloat(order.orderPrice),
+        quantity: parseFloat(order.quantity),
+        totalAmount: parseFloat(order.totalAmount),
+        status: order.status.toLowerCase() as 'pending' | 'filled',
+        orderTime: new Date(order.createdAt).toLocaleString('ko-KR'),
+      }));
+      setOrders(formattedOrders);
+    } catch (error) {
+      console.error('주문 목록 조회 실패:', error);
+    }
+  }, [selectedAccount]);
+
+  // 계좌 선택 시 주문 목록 조회
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
 
   const userBalance = 10000000; // 사용 가능 금액
 
@@ -271,58 +282,60 @@ export default function InvestScreen() {
     return price * quantity;
   };
 
-  const handleOrder = () => {
+  const handleOrder = async () => {
     if (!selectedStock) {
       Alert.alert('오류', '종목을 선택해주세요.');
+      return;
+    }
+    if (!selectedAccount) {
+      Alert.alert('오류', '계좌를 선택해주세요.');
       return;
     }
     if (!orderPrice || parseFloat(orderPrice) <= 0) {
       Alert.alert('오류', '주문 가격을 입력해주세요.');
       return;
     }
-    if (!orderQuantity || parseInt(orderQuantity) <= 0) {
+    if (!orderQuantity || parseFloat(orderQuantity) <= 0) {
       Alert.alert('오류', '주문 수량을 입력해주세요.');
       return;
     }
 
     const price = parseFloat(orderPrice);
-    const quantity = parseInt(orderQuantity);
+    const quantity = parseFloat(orderQuantity);
     const totalAmount = price * quantity;
 
-    if (orderType === 'buy' && totalAmount > userBalance) {
+    if (orderType === 'buy' && totalAmount > selectedAccount.balance) {
       Alert.alert('오류', '잔액이 부족합니다.');
       return;
     }
 
-    // 현재가와 주문가 비교
-    const currentPrice = selectedStock.currentPrice || 0;
-    const isMarketOrder = price >= currentPrice;
+    try {
+      // 종목 코드 추출 (NASDAQ:NVDA -> NVDA)
+      const stockCode = selectedStock.symbol.includes(':')
+        ? selectedStock.symbol.split(':')[1]
+        : selectedStock.symbol;
 
-    const newOrder: Order = {
-      id: Date.now().toString(),
-      stock: selectedStock,
-      type: orderType,
-      price,
-      quantity,
-      totalAmount,
-      status: isMarketOrder ? 'filled' : 'pending',
-      orderTime: new Date().toLocaleString('ko-KR'),
-    };
+      await createOrder({
+        accountId: selectedAccount.id,
+        stockCode: stockCode,
+        stockName: selectedStock.koreanName || selectedStock.name,
+        orderPrice: price,
+        quantity: quantity,
+        orderType: orderType.toUpperCase() as 'BUY' | 'SELL',
+      });
 
-    setOrders([newOrder, ...orders]);
+      // 주문 목록 새로고침
+      await fetchOrders();
 
-    if (isMarketOrder) {
       Alert.alert(
-        '체결 완료',
-        `${selectedStock.symbol} ${quantity}주가 $${price.toFixed(2)}에 ${orderType === 'buy' ? '매수' : '매도'} 체결되었습니다.`,
+        '주문 완료',
+        `${selectedStock.koreanName || selectedStock.name} ${quantity}주 ${orderType === 'buy' ? '매수' : '매도'} 주문이 접수되었습니다.`,
         [{ text: '확인', onPress: () => resetOrderForm() }]
       );
-    } else {
-      Alert.alert(
-        '주문 접수',
-        `${selectedStock.symbol} ${quantity}주 ${orderType === 'buy' ? '매수' : '매도'} 주문이 예약되었습니다.\n목표가: $${price.toFixed(2)}\n현재가가 목표가에 도달하면 자동 체결됩니다.`,
-        [{ text: '확인', onPress: () => resetOrderForm() }]
-      );
+    } catch (error: any) {
+      console.error('주문 실패:', error);
+      const errorMessage = error.response?.data?.message || '주문 처리 중 오류가 발생했습니다.';
+      Alert.alert('주문 실패', errorMessage);
     }
   };
 
@@ -687,14 +700,21 @@ export default function InvestScreen() {
             {order.status === 'pending' && (
               <TouchableOpacity
                 style={[styles.cancelButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                onPress={() => {
+                onPress={async () => {
                   Alert.alert('주문 취소', '정말 이 주문을 취소하시겠습니까?', [
                     { text: '아니오', style: 'cancel' },
                     {
                       text: '예',
-                      onPress: () => {
-                        setOrders(orders.filter((o) => o.id !== order.id));
-                        Alert.alert('완료', '주문이 취소되었습니다.');
+                      onPress: async () => {
+                        try {
+                          await cancelOrder(order.id);
+                          Alert.alert('완료', '주문이 취소되었습니다.');
+                          await fetchOrders(); // 주문 목록 새로고침
+                        } catch (error: any) {
+                          console.error('주문 취소 실패:', error);
+                          const errorMessage = error.response?.data?.message || '주문 취소 중 오류가 발생했습니다.';
+                          Alert.alert('오류', errorMessage);
+                        }
                       },
                     },
                   ]);
