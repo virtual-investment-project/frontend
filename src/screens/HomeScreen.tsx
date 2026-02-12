@@ -1,3 +1,4 @@
+import React, { useCallback, useEffect, useState } from 'react';
 import { ThemedText } from '../components/ThemedText';
 import { IconSymbol } from '../components/ui/IconSymbol';
 import { Colors } from '../constants/theme';
@@ -6,273 +7,348 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { Alert, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { getAllBattles } from '../services/battleService';
+import { getTeamsByBattleId, getTeamMembers } from '../services/teamService';
+import { BattleListResponse, TeamMemberResponse } from '../types/api';
+import { getAccessToken } from '../utils/tokenStorage';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-// 임시 데이터 - 추후 API로 대체
-const topRankings = {
-  profitRate: [
-    { rank: 1, name: '투자의 신', value: '+45.2%', team: 'Alpha Team' },
-    { rank: 2, name: '수익마스터', value: '+38.7%', team: 'Beta Squad' },
-    { rank: 3, name: '투자왕', value: '+32.1%', team: 'Gamma Group' },
-  ],
-  profitAmount: [
-    { rank: 1, name: '대박투자', value: '₩12,450,000', team: 'Delta Team' },
-    { rank: 2, name: '수익왕', value: '₩9,870,000', team: 'Epsilon Force' },
-    { rank: 3, name: '투자고수', value: '₩7,230,000', team: 'Zeta Club' },
-  ],
-};
-
-const recentBattles = [
-  { id: 1, team1: 'Alpha Team', team2: 'Beta Squad', status: '진행중', daysLeft: 5 },
-  { id: 2, team1: 'Gamma Group', team2: 'Delta Team', status: '진행중', daysLeft: 3 },
-  { id: 3, team1: 'Epsilon Force', team2: 'Zeta Club', status: '종료', winner: 'Epsilon Force' },
-];
+// 개인 계좌 수익률 랭킹
+interface AccountRankingItem {
+  rank: number;
+  nickname: string;
+  teamName: string;
+  battleName: string;
+  rate: number;
+}
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  // TODO: 실제 로그인 상태 관리로 대체
-  const isLoggedIn = false; // 임시로 false로 설정
+  const isDark = colorScheme === 'dark';
 
-  const handleProfilePress = () => {
+  const [battles, setBattles] = useState<BattleListResponse[]>([]);
+  const [topAccounts, setTopAccounts] = useState<AccountRankingItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // 배틀 데이터 로드
+  const loadData = useCallback(async () => {
+    try {
+      const battlesData = await getAllBattles();
+      setBattles(battlesData);
+
+      // 개인 계좌 수익률 TOP 3 추출
+      const allMembers: AccountRankingItem[] = [];
+      
+      for (const battle of battlesData) {
+        if (battle.status !== 'PROGRESS') continue; // 진행중인 배틀만
+        
+        try {
+          const teams = await getTeamsByBattleId(battle.id);
+          
+          for (const team of teams) {
+            try {
+              const members = await getTeamMembers(team.id);
+              
+              members.forEach((member: TeamMemberResponse) => {
+                allMembers.push({
+                  rank: 0,
+                  nickname: member.userNickname,
+                  teamName: team.name,
+                  battleName: battle.name,
+                  rate: member.rate,
+                });
+              });
+            } catch (err) {
+              console.error(`팀 ${team.id} 멤버 조회 오류:`, err);
+            }
+          }
+        } catch (err) {
+          console.error(`배틀 ${battle.id} 팀 조회 오류:`, err);
+        }
+      }
+
+      // 수익률 기준 정렬 후 TOP 3
+      const sorted = allMembers
+        .sort((a, b) => b.rate - a.rate)
+        .slice(0, 3)
+        .map((item, index) => ({ ...item, rank: index + 1 }));
+
+      setTopAccounts(sorted);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // 로그인 상태 확인
+  const checkLoginStatus = useCallback(async () => {
+    try {
+      const token = await getAccessToken();
+      console.log('[HOME] 토큰 확인:', { hasToken: !!token, tokenLength: token?.length });
+      setIsLoggedIn(!!token);
+    } catch (error) {
+      console.error('[HOME] 토큰 확인 중 오류:', error);
+      setIsLoggedIn(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    checkLoginStatus();
+  }, [loadData, checkLoginStatus]);
+
+  // Pull to refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    await checkLoginStatus();
+    setRefreshing(false);
+  }, [loadData, checkLoginStatus]);
+
+  // 진행중인 배틀만 필터링 (최대 3개)
+  const activeBattles = battles
+    .filter((b) => b.status === 'PROGRESS')
+    .slice(0, 3);
+
+  // 참여 가능한 배틀 (YET 상태, 최대 3개)
+  const availableBattles = battles
+    .filter((b) => b.status === 'YET')
+    .slice(0, 3);
+
+  // 남은 일수 계산
+  const getDaysLeft = (endAt: string) => {
+    const end = new Date(endAt);
+    const now = new Date();
+    const diff = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return diff > 0 ? diff : 0;
+  };
+
+  // 수익률 포맷팅
+  const formatRate = (rate: number) => {
+    const sign = rate >= 0 ? '+' : '';
+    return `${sign}${rate.toFixed(2)}%`;
+  };
+
+  const handleProfilePress = async () => {
+    console.log('[PROFILE] 프로필 버튼 클릭:', { isLoggedIn });
     if (isLoggedIn) {
-      // 로그인 되어 있으면 마이페이지로
       navigation.navigate('My');
     } else {
-      // 로그인 안 되어 있으면 로그인 페이지로
       navigation.navigate('Login');
     }
   };
 
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
+        <ActivityIndicator size="large" color={colors.tint} />
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-      {/* 고정 네비게이션 바 */}
-      <View style={[styles.fixedNavBar, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-        <View style={styles.navBar}>
-          <TouchableOpacity
-            style={styles.navButton}
-            onPress={() => Alert.alert('알림', '알림 목록')}>
-            <View style={styles.notificationIcon}>
-              <IconSymbol
-                size={24}
-                name="bell.fill"
-                color={colorScheme === 'dark' ? '#FFFFFF' : '#334155'}
-              />
-              {/* 알림 배지 */}
-              <View style={styles.notificationBadge}>
-                <ThemedText style={styles.badgeText}>3</ThemedText>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {/* 가운데 마이페이지 버튼 (임시) */}
-          <TouchableOpacity
-            style={styles.centerButton}
-            onPress={() => navigation.navigate('My')}>
-            <ThemedText style={[styles.centerButtonText, { color: colorScheme === 'dark' ? '#FFFFFF' : '#6366F1' }]}>
-              마이페이지
-            </ThemedText>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.navButton}
-            onPress={handleProfilePress}>
-            <View style={styles.profileIconContainer}>
-              <IconSymbol
-                size={24}
-                name="person.circle.fill"
-                color={colorScheme === 'dark' ? '#FFFFFF' : '#6366F1'}
-              />
-            </View>
+    <View style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
+      {/* 헤더 */}
+      <View style={[styles.header, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={styles.headerRow}>
+          <ThemedText style={[styles.logo, { color: colors.tint }]}>💎 InvestBattle</ThemedText>
+          <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+            <IconSymbol size={28} name="person.circle.fill" color={colors.tint} />
           </TouchableOpacity>
         </View>
-        {/* 구분선 */}
-        <View style={[styles.navBarDivider, {
-          backgroundColor: colorScheme === 'dark' ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'
-        }]} />
       </View>
 
-      {/* 스크롤 가능한 컨텐츠 */}
-      <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContentContainer}>
-        {/* 헤더 타이틀 섹션 */}
-        <View style={styles.headerWrapper}>
-          <LinearGradient
-            colors={colorScheme === 'dark' ? ['#1E293B', '#334155'] : ['#6366F1', '#8B5CF6']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.headerGradient}>
-            <View style={styles.headerContent}>
-              <ThemedText type="title" style={styles.headerTitle}>
-                💎 InvestBattle
-              </ThemedText>
-              <ThemedText style={styles.headerSubtitle}>
-                그룹 대결 모의투자 플랫폼
-              </ThemedText>
-            </View>
-          </LinearGradient>
-        </View>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.tint} />
+        }>
+        {/* 히어로 배너 */}
+        <LinearGradient
+          colors={isDark ? ['#4F46E5', '#7C3AED'] : ['#6366F1', '#8B5CF6']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroBanner}>
+          <ThemedText style={styles.heroTitle}>팀과 함께{'\n'}투자 대결을 시작하세요</ThemedText>
+          <ThemedText style={styles.heroSubtitle}>실시간 모의투자 배틀 플랫폼</ThemedText>
+        </LinearGradient>
 
-        {/* 앱 설명 섹션 */}
+        {/* 개인 계좌 수익률 TOP 3 */}
         <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            💡 앱 소개
-          </ThemedText>
-          <View style={[styles.card, styles.shadow, {
-            backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF'
-          }]}>
-            <ThemedText style={styles.description}>
-              InvestBattle은 친구들과 함께 팀을 만들어{'\n'}
-              실시간 모의투자 대결을 즐길 수 있는 플랫폼입니다.
+          <View style={styles.sectionHeader}>
+            <ThemedText style={[styles.sectionTitle, { color: isDark ? '#F1F5F9' : '#1E293B' }]}>
+              🏆 개인 수익률 TOP 3
             </ThemedText>
-            <View style={styles.featureGrid}>
-              <View style={styles.featureItem}>
-                <ThemedText style={styles.featureIcon}>📈</ThemedText>
-                <ThemedText style={styles.featureText}>실시간 시뮬레이션</ThemedText>
-              </View>
-              <View style={styles.featureItem}>
-                <ThemedText style={styles.featureIcon}>👥</ThemedText>
-                <ThemedText style={styles.featureText}>팀별 대결</ThemedText>
-              </View>
-              <View style={styles.featureItem}>
-                <ThemedText style={styles.featureIcon}>🏆</ThemedText>
-                <ThemedText style={styles.featureText}>실시간 랭킹</ThemedText>
-              </View>
-              <View style={styles.featureItem}>
-                <ThemedText style={styles.featureIcon}>💰</ThemedText>
-                <ThemedText style={styles.featureText}>$100K 시작</ThemedText>
-              </View>
-            </View>
           </View>
-        </View>
 
-        {/* 수익률 TOP 3 */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            🏆 수익률 TOP 3
-          </ThemedText>
-          {topRankings.profitRate.map((item) => (
-            <View
-              key={item.rank}
-              style={[
-                styles.rankCard,
-                styles.shadow,
-                { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' },
-              ]}>
-              <View style={styles.rankLeft}>
-                <View
-                  style={[
-                    styles.rankBadge,
-                    item.rank === 1 && styles.goldBadge,
-                    item.rank === 2 && styles.silverBadge,
-                    item.rank === 3 && styles.bronzeBadge,
-                  ]}>
-                  <ThemedText style={styles.rankNumber}>{item.rank}</ThemedText>
+          {topAccounts.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
+              <ThemedText style={[styles.emptyText, { color: colors.icon }]}>
+                아직 진행 중인 배틀이 없습니다
+              </ThemedText>
+            </View>
+          ) : (
+            topAccounts.map((item) => (
+              <View
+                key={`${item.nickname}-${item.rank}`}
+                style={[styles.rankCard, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
+                <View style={styles.rankLeft}>
+                  <View
+                    style={[
+                      styles.rankBadge,
+                      item.rank === 1 && styles.goldBadge,
+                      item.rank === 2 && styles.silverBadge,
+                      item.rank === 3 && styles.bronzeBadge,
+                    ]}>
+                    <ThemedText style={styles.rankNumber}>{item.rank}</ThemedText>
+                  </View>
+                  <View style={styles.rankInfo}>
+                    <ThemedText style={[styles.teamNameText, { color: isDark ? '#F1F5F9' : '#1E293B' }]}>
+                      {item.nickname}
+                    </ThemedText>
+                    <ThemedText style={[styles.battleNameText, { color: colors.icon }]}>
+                      {item.teamName} · {item.battleName}
+                    </ThemedText>
+                  </View>
                 </View>
-                <View style={styles.rankInfo}>
-                  <ThemedText type="defaultSemiBold" style={styles.userName}>{item.name}</ThemedText>
-                  <ThemedText style={[styles.teamText, { color: colors.icon }]}>
-                    {item.team}
+                <View style={[styles.rateContainer, { backgroundColor: item.rate >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)' }]}>
+                  <ThemedText style={[styles.rateText, { color: item.rate >= 0 ? '#10B981' : '#EF4444' }]}>
+                    {formatRate(item.rate)}
                   </ThemedText>
                 </View>
               </View>
-              <View style={styles.profitRateContainer}>
-                <ThemedText type="defaultSemiBold" style={styles.profitRate}>
-                  {item.value}
-                </ThemedText>
-              </View>
-            </View>
-          ))}
+            ))
+          )}
         </View>
 
-        {/* 수익금 TOP 3 */}
+        {/* 진행중인 대결 */}
         <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            💰 수익금 TOP 3
-          </ThemedText>
-          {topRankings.profitAmount.map((item) => (
-            <View
-              key={item.rank}
-              style={[
-                styles.rankCard,
-                styles.shadow,
-                { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' },
-              ]}>
-              <View style={styles.rankLeft}>
-                <View
-                  style={[
-                    styles.rankBadge,
-                    item.rank === 1 && styles.goldBadge,
-                    item.rank === 2 && styles.silverBadge,
-                    item.rank === 3 && styles.bronzeBadge,
-                  ]}>
-                  <ThemedText style={styles.rankNumber}>{item.rank}</ThemedText>
-                </View>
-                <View style={styles.rankInfo}>
-                  <ThemedText type="defaultSemiBold" style={styles.userName}>{item.name}</ThemedText>
-                  <ThemedText style={[styles.teamText, { color: colors.icon }]}>
-                    {item.team}
+          <View style={styles.sectionHeader}>
+            <ThemedText style={[styles.sectionTitle, { color: isDark ? '#F1F5F9' : '#1E293B' }]}>
+              ⚔️ 진행중인 대결
+            </ThemedText>
+          </View>
+
+          {activeBattles.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
+              <ThemedText style={[styles.emptyText, { color: colors.icon }]}>
+                진행 중인 대결이 없습니다
+              </ThemedText>
+            </View>
+          ) : (
+            activeBattles.map((battle) => (
+              <TouchableOpacity
+                key={battle.id}
+                style={[styles.battleCard, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}
+                onPress={() => navigation.navigate('BattleDetail', { battleId: battle.id })}
+                activeOpacity={0.7}>
+                <View style={styles.battleHeader}>
+                  <ThemedText style={[styles.battleTitle, { color: isDark ? '#F1F5F9' : '#1E293B' }]}>
+                    {battle.name}
                   </ThemedText>
+                  <View style={styles.statusBadge}>
+                    <ThemedText style={styles.statusText}>진행중</ThemedText>
+                  </View>
                 </View>
-              </View>
-              <View style={styles.profitAmountContainer}>
-                <ThemedText type="defaultSemiBold" style={styles.profitAmount}>
-                  {item.value}
-                </ThemedText>
-              </View>
-            </View>
-          ))}
+
+                <View style={styles.battleInfo}>
+                  <View style={styles.battleInfoItem}>
+                    <ThemedText style={[styles.infoLabel, { color: colors.icon }]}>종목</ThemedText>
+                    <ThemedText style={[styles.infoValue, { color: isDark ? '#E2E8F0' : '#334155' }]}>
+                      {battle.ticker}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.battleInfoItem}>
+                    <ThemedText style={[styles.infoLabel, { color: colors.icon }]}>팀 수</ThemedText>
+                    <ThemedText style={[styles.infoValue, { color: isDark ? '#E2E8F0' : '#334155' }]}>
+                      {battle.teams.length}팀
+                    </ThemedText>
+                  </View>
+                  <View style={styles.battleInfoItem}>
+                    <ThemedText style={[styles.infoLabel, { color: colors.icon }]}>남은 기간</ThemedText>
+                    <ThemedText style={[styles.infoValue, { color: colors.tint }]}>
+                      D-{getDaysLeft(battle.endAt)}
+                    </ThemedText>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
         </View>
 
-        {/* 대결 정보 */}
+        {/* 참여 가능한 배틀 */}
         <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            ⚔️ 진행중인 대결
-          </ThemedText>
-          {recentBattles.map((battle) => (
-            <View
-              key={battle.id}
-              style={[
-                styles.battleCard,
-                styles.shadow,
-                { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' },
-              ]}>
-              <View style={styles.battleTeams}>
-                <ThemedText type="defaultSemiBold" style={styles.teamName}>
-                  {battle.team1}
-                </ThemedText>
-                <View style={styles.vsContainer}>
-                  <ThemedText style={styles.vsText}>VS</ThemedText>
-                </View>
-                <ThemedText type="defaultSemiBold" style={styles.teamName}>
-                  {battle.team2}
-                </ThemedText>
-              </View>
-              <View style={styles.battleStatus}>
-                {battle.status === '진행중' ? (
-                  <>
-                    <View style={[styles.statusBadge, styles.ongoingBadge]}>
-                      <ThemedText style={styles.statusText}>⏱ 진행중</ThemedText>
-                    </View>
-                    <ThemedText style={[styles.daysLeft, { color: colors.icon }]}>
-                      {battle.daysLeft}일 남음
-                    </ThemedText>
-                  </>
-                ) : (
-                  <>
-                    <View style={[styles.statusBadge, styles.endedBadge]}>
-                      <ThemedText style={styles.statusText}>✓ 종료</ThemedText>
-                    </View>
-                    <ThemedText style={[styles.winner, { color: '#10B981' }]}>
-                      🎉 {battle.winner}
-                    </ThemedText>
-                  </>
-                )}
-              </View>
+          <View style={styles.sectionHeader}>
+            <ThemedText style={[styles.sectionTitle, { color: isDark ? '#F1F5F9' : '#1E293B' }]}>
+              🎯 참여 가능한 배틀
+            </ThemedText>
+            <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'Teams' })}>
+              <ThemedText style={[styles.seeAllText, { color: colors.tint }]}>전체보기</ThemedText>
+            </TouchableOpacity>
+          </View>
+
+          {availableBattles.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
+              <ThemedText style={[styles.emptyText, { color: colors.icon }]}>
+                참여 가능한 배틀이 없습니다
+              </ThemedText>
             </View>
-          ))}
+          ) : (
+            availableBattles.map((battle) => (
+              <TouchableOpacity
+                key={battle.id}
+                style={[styles.battleCard, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}
+                onPress={() => navigation.navigate('BattleDetail', { battleId: battle.id })}
+                activeOpacity={0.7}>
+                <View style={styles.battleHeader}>
+                  <ThemedText style={[styles.battleTitle, { color: isDark ? '#F1F5F9' : '#1E293B' }]}>
+                    {battle.name}
+                  </ThemedText>
+                  <View style={[styles.statusBadge, { backgroundColor: '#10B981' }]}>
+                    <ThemedText style={styles.statusText}>모집중</ThemedText>
+                  </View>
+                </View>
+
+                <View style={styles.battleInfo}>
+                  <View style={styles.battleInfoItem}>
+                    <ThemedText style={[styles.infoLabel, { color: colors.icon }]}>종목</ThemedText>
+                    <ThemedText style={[styles.infoValue, { color: isDark ? '#E2E8F0' : '#334155' }]}>
+                      {battle.ticker}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.battleInfoItem}>
+                    <ThemedText style={[styles.infoLabel, { color: colors.icon }]}>시작일</ThemedText>
+                    <ThemedText style={[styles.infoValue, { color: isDark ? '#E2E8F0' : '#334155' }]}>
+                      {new Date(battle.startAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.battleInfoItem}>
+                    <ThemedText style={[styles.infoLabel, { color: colors.icon }]}>팀 수</ThemedText>
+                    <ThemedText style={[styles.infoValue, { color: colors.tint }]}>
+                      {battle.teams.length}팀
+                    </ThemedText>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
         </View>
 
         <View style={styles.bottomSpacer} />
@@ -285,303 +361,219 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  fixedNavBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 1000,
-    paddingTop: Platform.OS === 'ios' ? 44 : 0,
-    paddingBottom: 8,
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    paddingTop: Platform.OS === 'ios' ? 50 : 12,
+    paddingBottom: 12,
     paddingHorizontal: 20,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 3,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
       },
       android: {
-        elevation: 4,
+        elevation: 2,
       },
     }),
   },
-  navBar: {
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    width: '100%',
-    height: 44,
   },
-  centerButton: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  centerButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  navBarDivider: {
-    height: 1,
-    width: '100%',
-    marginTop: 8,
-    opacity: 0.6,
-  },
-  scrollContent: {
-    flex: 1,
-  },
-  scrollContentContainer: {
-    paddingTop: Platform.OS === 'ios' ? 105 : 61,
-  },
-  headerWrapper: {
-    marginBottom: 24,
-  },
-  headerGradient: {
-    paddingTop: 30,
-    paddingBottom: 40,
-    paddingHorizontal: 24,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  navButton: {
-    padding: 6,
-  },
-  notificationIcon: {
-    position: 'relative',
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: '#EF4444',
-    borderRadius: 9,
-    minWidth: 16,
-    height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  profileIconContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerContent: {
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 36,
+  logo: {
+    fontSize: 22,
     fontWeight: '800',
-    marginBottom: 8,
-    color: '#FFFFFF',
     letterSpacing: -0.5,
   },
-  headerSubtitle: {
-    fontSize: 16,
+  profileButton: {
+    padding: 4,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 100,
+  },
+  heroBanner: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 20,
+    padding: 28,
+  },
+  heroTitle: {
+    fontSize: 26,
+    fontWeight: '800',
     color: '#FFFFFF',
-    opacity: 0.9,
+    lineHeight: 34,
+    marginBottom: 8,
+  },
+  heroSubtitle: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.85)',
     fontWeight: '500',
   },
   section: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginTop: 28,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
   },
   sectionTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '700',
-    marginBottom: 16,
-    letterSpacing: -0.3,
   },
-  card: {
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 8,
+  seeAllText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
-  shadow: {
+  emptyCard: {
+    borderRadius: 14,
+    padding: 32,
+    alignItems: 'center',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
       },
       android: {
-        elevation: 4,
-      },
-      web: {
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        elevation: 2,
       },
     }),
   },
-  description: {
-    lineHeight: 26,
-    fontSize: 16,
-    marginBottom: 20,
-    opacity: 0.8,
-  },
-  featureGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  featureItem: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: 'rgba(99, 102, 241, 0.08)',
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-    gap: 6,
-  },
-  featureIcon: {
-    fontSize: 28,
-  },
-  featureText: {
-    fontSize: 13,
-    fontWeight: '600',
-    opacity: 0.8,
+  emptyText: {
+    fontSize: 14,
   },
   rankCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 12,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   rankLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     flex: 1,
   },
   rankBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
   },
   goldBadge: {
-    backgroundColor: '#FFD700',
+    backgroundColor: '#F59E0B',
   },
   silverBadge: {
-    backgroundColor: '#E8E8E8',
+    backgroundColor: '#9CA3AF',
   },
   bronzeBadge: {
-    backgroundColor: '#CD7F32',
+    backgroundColor: '#B45309',
   },
   rankNumber: {
     color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 18,
+    fontWeight: '700',
+    fontSize: 14,
   },
   rankInfo: {
-    gap: 5,
     flex: 1,
+    gap: 2,
   },
-  userName: {
-    fontSize: 16,
+  teamNameText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
-  teamText: {
-    fontSize: 13,
-    opacity: 0.7,
+  battleNameText: {
+    fontSize: 12,
   },
-  profitRateContainer: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
+  rateContainer: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
-  profitRate: {
-    color: '#10B981',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  profitAmountContainer: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  profitAmount: {
-    fontSize: 16,
+  rateText: {
+    fontSize: 14,
     fontWeight: '700',
   },
   battleCard: {
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 14,
+    padding: 16,
     marginBottom: 12,
-    gap: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
-  battleTeams: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  teamName: {
-    fontSize: 16,
-  },
-  vsContainer: {
-    backgroundColor: 'rgba(99, 102, 241, 0.15)',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  vsText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#6366F1',
-    letterSpacing: 1,
-  },
-  battleStatus: {
+  battleHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(148, 163, 184, 0.2)',
+    marginBottom: 14,
+  },
+  battleTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
   },
   statusBadge: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  ongoingBadge: {
     backgroundColor: '#3B82F6',
-  },
-  endedBadge: {
-    backgroundColor: '#10B981',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   statusText: {
     color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '600',
   },
-  daysLeft: {
+  battleInfo: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  battleInfoItem: {
+    gap: 2,
+  },
+  infoLabel: {
+    fontSize: 11,
+  },
+  infoValue: {
     fontSize: 14,
     fontWeight: '600',
   },
-  winner: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
   bottomSpacer: {
-    height: 50,
+    height: 20,
   },
 });

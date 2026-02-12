@@ -59,7 +59,7 @@ const formatDate = (isoDate: string): string => {
 export default function BattleDetailScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<BattleDetailRouteProp>();
-  const { id } = route.params;
+  const { battleId: id } = route.params;
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 

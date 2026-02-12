@@ -1,0 +1,27 @@
+{
+    "java.configuration.updateBuildConfiguration": "interactive",
+    // node_modules를 검사에서 제외
+    "files.exclude": {
+        "**/node_modules": true
+    },
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/build": true,
+        "**/.gradle": true,
+        "**/android/build": true,
+        "**/android/app/build": true,
+        "**/ios/build": true,
+        "**/ios/Pods": true
+    },
+    // Java Language Server가 node_modules를 검사하지 않도록
+    "java.project.sourcePaths": [
+        "android/app/src/main/java"
+    ],
+    "java.project.outputPath": "android/app/build",
+    // TypeScript가 node_modules를 제대로 처리하도록
+    "typescript.tsdk": "node_modules/typescript/lib",
+    // ESLint가 node_modules를 무시하도록
+    "eslint.workingDirectories": [
+        { "mode": "auto" }
+    ]
+}

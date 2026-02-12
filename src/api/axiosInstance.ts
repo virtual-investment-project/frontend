@@ -33,12 +33,27 @@ const processQueue = (error: any = null, token: string | null = null) => {
 // Request 인터셉터: 모든 요청에 Access Token 자동 추가
 apiClient.interceptors.request.use(
   async (config) => {
-    // Keychain에서 Access Token 가져오기
-    const accessToken = await getAccessToken();
-    
-    if (accessToken) {
-      // Authorization 헤더에 Bearer Token 추가
-      config.headers.Authorization = `Bearer ${accessToken}`;
+    try {
+      // Keychain에서 Access Token 가져오기
+      const accessToken = await getAccessToken();
+      
+      console.log('📤 API 요청:', config.method?.toUpperCase(), config.url);
+      
+      if (accessToken) {
+        // Authorization 헤더에 Bearer Token 추가
+        config.headers.Authorization = `Bearer ${accessToken}`;
+        console.log('🔑 토큰 추가 완료 (앞 20자):', accessToken.substring(0, 20) + '...');
+      } else {
+        console.warn('⚠️ Access Token이 없습니다! 로그인이 필요합니다.');
+      }
+      
+      console.log('📋 전송 헤더:', {
+        'Content-Type': config.headers['Content-Type'],
+        'Authorization': config.headers.Authorization ? '있음' : '없음'
+      });
+    } catch (error) {
+      // Keychain 에러 발생 시 토큰 없이 요청 진행
+      console.error('❌ Keychain 에러:', error);
     }
     
     return config;

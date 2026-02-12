@@ -11,8 +11,9 @@ import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 import apiClient from '../api/axiosInstance';
 import { clearAllTokens } from '../utils/tokenStorage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import { getPersonalAccount, createPersonalAccount } from '../services/accountService';
-import { AccountResponse } from '../types/api';
+import { GOOGLE_WEB_CLIENT_ID } from '@env';
+import { getPersonalAccount, createPersonalAccount, getPersonalStocks, getPersonalTransactions, getPendingOrders, getPersonalBattleProfits } from '../services/accountService';
+import { AccountResponse, StockHoldingResponse, TransactionResponse, PendingOrderResponse, BattleProfitResponse } from '../types/api';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -47,14 +48,25 @@ export default function MyScreen() {
   const [personalAccount, setPersonalAccount] = useState<AccountResponse | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
 
+  // 계좌 상세 데이터 상태
+  const [stocks, setStocks] = useState<StockHoldingResponse[]>([]);
+  const [transactions, setTransactions] = useState<TransactionResponse[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrderResponse[]>([]);
+  const [battleProfits, setBattleProfits] = useState<BattleProfitResponse[]>([]);
+
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedInfo, setEditedInfo] = useState({
     school: '',
     company: '',
   });
 
-  // 컴포넌트 마운트 시 사용자 정보 로드
+  // 컴포넌트 마운트 시 GoogleSignin 설정 및 사용자 정보 로드
   useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: GOOGLE_WEB_CLIENT_ID,
+      offlineAccess: true,
+      forceCodeForRefreshToken: true,
+    });
     fetchUserProfile();
   }, []);
 
@@ -76,7 +88,26 @@ export default function MyScreen() {
       });
     } catch (error: any) {
       console.error('Profile Fetch Error:', error);
-      Alert.alert('오류', '사용자 정보를 불러오는데 실패했습니다.');
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      
+      // 인증 오류인 경우 로그인 화면으로
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        Alert.alert('로그인 필요', '로그인이 필요합니다.', [
+          {
+            text: '확인',
+            onPress: () => {
+              clearAllTokens();
+              navigation.navigate('Login');
+            },
+          },
+        ]);
+      } else {
+        Alert.alert(
+          '오류', 
+          `사용자 정보를 불러오는데 실패했습니다.\n${error.response?.data?.message || error.message || '네트워크 오류'}`
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -89,6 +120,19 @@ export default function MyScreen() {
       setAccountError(null);
       const account = await getPersonalAccount();
       setPersonalAccount(account);
+
+      // 계좌 상세 데이터 병렬 조회
+      const [stocksData, txData, ordersData, battlesData] = await Promise.allSettled([
+        getPersonalStocks(),
+        getPersonalTransactions(),
+        getPendingOrders(),
+        getPersonalBattleProfits(),
+      ]);
+
+      setStocks(stocksData.status === 'fulfilled' ? stocksData.value : []);
+      setTransactions(txData.status === 'fulfilled' ? txData.value : []);
+      setPendingOrders(ordersData.status === 'fulfilled' ? ordersData.value : []);
+      setBattleProfits(battlesData.status === 'fulfilled' ? battlesData.value : []);
     } catch (error: any) {
       // 계좌가 없는 경우
       if (error.response?.status === 404) {
@@ -126,25 +170,6 @@ export default function MyScreen() {
     }
   };
 
-  // 임시 데이터 (보유 종목, 거래내역 등 - 추후 API 연동)
-  const mockData = {
-    stocks: [
-      { name: '삼성전자', quantity: 10, avgPrice: 70000, currentPrice: 75000, profitRate: 7.14, profit: 50000 },
-      { name: 'SK하이닉스', quantity: 5, avgPrice: 120000, currentPrice: 135000, profitRate: 12.5, profit: 75000 },
-    ],
-    transactions: [
-      { date: '2026-01-04 14:30', type: '매수', stock: '삼성전자', quantity: 5, price: 70000, total: -350000 },
-      { date: '2026-01-03 10:15', type: '입금', stock: '-', quantity: 0, price: 0, total: 5000000 },
-    ],
-    pendingOrders: [
-      { id: 1, type: '매수', stock: 'NAVER', quantity: 3, price: 200000, status: '미체결' },
-    ],
-    battles: [
-      { name: 'Alpha Team vs Beta Squad', profitRate: 15.2, rank: 1 },
-      { name: 'Team C vs Team D', profitRate: -3.5, rank: 4 },
-    ],
-  };
-
   const handleLogout = async () => {
     Alert.alert(
       '로그아웃',
@@ -161,12 +186,18 @@ export default function MyScreen() {
             try {
               // 백엔드에 로그아웃 요청 (Refresh Token 무효화)
               await apiClient.post('/api/mypage/logout');
-
-              // Keychain의 토큰 및 사용자 정보 삭제
+            } catch (error: any) {
+              console.warn('로그아웃 API 요청 실패 (무시):', error.message);
+            } finally {
+              // 로컬 토큰 삭제
               await clearAllTokens();
 
-              // Google Sign-In 세션 종료
-              await GoogleSignin.signOut();
+              // Google Sign-In 세션 종료 (configure 안 된 경우 대비)
+              try {
+                await GoogleSignin.signOut();
+              } catch (e) {
+                console.warn('GoogleSignin.signOut 실패 (무시):', e);
+              }
 
               // 로그인 화면으로 이동
               navigation.reset({
@@ -175,17 +206,6 @@ export default function MyScreen() {
               });
 
               Alert.alert('로그아웃 완료', '다시 로그인해주세요.');
-            } catch (error: any) {
-              console.error('Logout Error:', error);
-
-              // 백엔드 요청 실패해도 로컬 데이터는 삭제하고 로그아웃 처리
-              await clearAllTokens();
-              await GoogleSignin.signOut();
-
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
             }
           },
         },
@@ -416,15 +436,15 @@ export default function MyScreen() {
           </View>
         </View>
 
-        {/* 보유 종목 - 추후 API 연동 */}
+        {/* 보유 종목 */}
         <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
           <ThemedText type="subtitle" style={styles.cardTitle}>보유 종목</ThemedText>
-          {mockData.stocks.length === 0 ? (
+          {stocks.length === 0 ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <Text style={{ color: colors.icon }}>보유 종목이 없습니다</Text>
             </View>
           ) : (
-            mockData.stocks.map((stock, index) => (
+            stocks.map((stock, index) => (
               <View key={index} style={[styles.stockItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.stockName, { color: colors.text }]}>{stock.name}</Text>
@@ -445,15 +465,15 @@ export default function MyScreen() {
           )}
         </View>
 
-        {/* 거래내역 - 추후 API 연동 */}
+        {/* 거래내역 */}
         <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
           <ThemedText type="subtitle" style={styles.cardTitle}>거래내역</ThemedText>
-          {mockData.transactions.length === 0 ? (
+          {transactions.length === 0 ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <Text style={{ color: colors.icon }}>거래내역이 없습니다</Text>
             </View>
           ) : (
-            mockData.transactions.map((tx, index) => (
+            transactions.map((tx, index) => (
               <View key={index} style={[styles.transactionItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.transactionType, { color: tx.type === '매수' ? '#EF4444' : '#10B981' }]}>
@@ -474,17 +494,17 @@ export default function MyScreen() {
           )}
         </View>
 
-        {/* 미체결 주문 - 추후 API 연동 */}
+        {/* 미체결 주문 */}
         <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
           <ThemedText type="subtitle" style={styles.cardTitle}>미체결 주문</ThemedText>
-          {mockData.pendingOrders.length === 0 ? (
+          {pendingOrders.length === 0 ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <Text style={{ color: colors.icon }}>미체결 주문이 없습니다</Text>
             </View>
           ) : (
-            mockData.pendingOrders.map((order, index) => (
+            pendingOrders.map((order, index) => (
               <TouchableOpacity
-                key={index}
+                key={order.id}
                 style={[styles.pendingItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}
                 onPress={() => Alert.alert('미체결 주문', '투자 페이지로 이동')}>
                 <View style={{ flex: 1 }}>
@@ -501,15 +521,15 @@ export default function MyScreen() {
           )}
         </View>
 
-        {/* 대결별 수익률 - 추후 API 연동 */}
+        {/* 대결별 수익률 */}
         <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
           <ThemedText type="subtitle" style={styles.cardTitle}>대결별 수익률</ThemedText>
-          {mockData.battles.length === 0 ? (
+          {battleProfits.length === 0 ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <Text style={{ color: colors.icon }}>참여 중인 대결이 없습니다</Text>
             </View>
           ) : (
-            mockData.battles.map((battle, index) => (
+            battleProfits.map((battle, index) => (
               <View key={index} style={[styles.battleItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.stockName, { color: colors.text }]}>{battle.name}</Text>
