@@ -64,6 +64,43 @@ export interface AccountResponse {
   totalAsset: number;
 }
 
+// 보유 종목
+export interface StockHoldingResponse {
+  name: string;
+  quantity: number;
+  avgPrice: number;
+  currentPrice: number;
+  profitRate: number;
+  profit: number;
+}
+
+// 거래내역
+export interface TransactionResponse {
+  date: string;
+  type: string;
+  stock: string;
+  quantity: number;
+  price: number;
+  total: number;
+}
+
+// 미체결 주문
+export interface PendingOrderResponse {
+  id: number;
+  type: string;
+  stock: string;
+  quantity: number;
+  price: number;
+  status: string;
+}
+
+// 대결별 수익률
+export interface BattleProfitResponse {
+  name: string;
+  profitRate: number;
+  rank: number;
+}
+
 // Team API 타입 정의
 
 export type TeamUserRole = 'LEADER' | 'MEMBER';

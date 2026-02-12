@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# build outputs
+android/build/
+android/app/build/
+android/.gradle/
+android/.cxx/
+ios/build/
+ios/Pods/
+
+# generated files
+*.g.dart
+*.freezed.dart
+*.mocks.dart
+
+# misc
+.DS_Store
+*.log

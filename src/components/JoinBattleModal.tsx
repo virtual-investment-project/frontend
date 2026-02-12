@@ -106,6 +106,7 @@ export default function JoinBattleModal({
 
         try {
             setLoading(true);
+            console.log('팀 생성 요청:', { name: newTeamName.trim(), description: newTeamDescription.trim() || undefined });
             const team = await createTeam(battleId, {
                 name: newTeamName.trim(),
                 description: newTeamDescription.trim() || undefined,
@@ -115,7 +116,22 @@ export default function JoinBattleModal({
             ]);
         } catch (err: any) {
             console.error('팀 생성 오류:', err);
-            Alert.alert('오류', err.response?.data?.message || '팀 생성에 실패했습니다.');
+            console.error('에러 상세:', {
+                status: err.response?.status,
+                statusText: err.response?.statusText,
+                message: err.response?.data?.message,
+                data: err.response?.data
+            });
+            
+            // 사용자 친화적인 에러 메시지 표시
+            let errorMessage = '팀 생성에 실패했습니다.';
+            if (err.response?.status === 403) {
+                errorMessage = '이미 이 배틀에서 팀에 가입되어 있습니다. 한 배틀에는 하나의 팀에만 참가할 수 있습니다.';
+            } else if (err.response?.data?.message) {
+                errorMessage = err.response.data.message;
+            }
+            
+            Alert.alert('팀 생성 불가', errorMessage);
         } finally {
             setLoading(false);
         }

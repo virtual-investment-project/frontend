@@ -53,9 +53,11 @@ export default function LoginScreen() {
 
       // 4. 백엔드에서 받은 JWT 저장 (Refresh Token도 함께 저장)
       const { accessToken, refreshToken, role } = response.data;
+      console.log('[LOGIN] 백엔드 응답:', { role, hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken });
 
       // Keychain에 토큰 저장 (보안 저장소 사용)
       await setTokens(accessToken, refreshToken, role);
+      console.log('[LOGIN] 토큰 저장 완료');
       
       // 5. 역할에 따른 화면 전환
       if (role === 'GUEST') {
