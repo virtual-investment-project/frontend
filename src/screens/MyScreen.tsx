@@ -32,7 +32,7 @@ export default function MyScreen() {
   const colors = Colors[colorScheme ?? 'light'];
 
   // 탭 상태
-  const [activeTab, setActiveTab] = useState<'info' | 'account' | 'deposit'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'account' | 'deposit' | 'settings'>('info');
 
   // 로딩 상태
   const [loading, setLoading] = useState(true);
@@ -61,6 +61,28 @@ export default function MyScreen() {
   });
 
   // 컴포넌트 마운트 시 GoogleSignin 설정 및 사용자 정보 로드
+  // 설정 상태
+  const [notificationSettings, setNotificationSettings] = useState({
+    orderExecution: true,
+    battleStart: true,
+    rankChange: true,
+    profitRate: true,
+    pushNotification: true,
+    dailySummary: false,
+    stockPriceAlert: false,
+  });
+
+  const [gameSettings, setGameSettings] = useState({
+    teamInviteAlert: true,
+    autoMatching: false,
+    publicProfile: true,
+  });
+
+  const [uiSettings, setUiSettings] = useState({
+    darkMode: colorScheme === 'dark',
+  });
+
+  // 컴포넌트 마운트 시 사용자 정보 로드
   useEffect(() => {
     GoogleSignin.configure({
       webClientId: GOOGLE_WEB_CLIENT_ID,
@@ -590,6 +612,172 @@ export default function MyScreen() {
     </View>
   );
 
+  const renderSettingsTab = () => (
+    <View>
+      {/* 알림 설정 */}
+      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={styles.settingsSectionHeader}>
+          <Text style={[styles.settingsSectionIcon]}>🔔</Text>
+          <ThemedText type="subtitle" style={styles.cardTitle}>알림 설정</ThemedText>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>주문 체결 알림</Text>
+          <TouchableOpacity
+            style={[styles.toggle, notificationSettings.orderExecution && { backgroundColor: '#6366F1' }]}
+            onPress={() => setNotificationSettings({ ...notificationSettings, orderExecution: !notificationSettings.orderExecution })}>
+            <View style={[styles.toggleThumb, notificationSettings.orderExecution && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>팀전 시작 알림</Text>
+          <TouchableOpacity
+            style={[styles.toggle, notificationSettings.battleStart && { backgroundColor: '#6366F1' }]}
+            onPress={() => setNotificationSettings({ ...notificationSettings, battleStart: !notificationSettings.battleStart })}>
+            <View style={[styles.toggleThumb, notificationSettings.battleStart && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>순위 변동 알림</Text>
+          <TouchableOpacity
+            style={[styles.toggle, notificationSettings.rankChange && { backgroundColor: '#6366F1' }]}
+            onPress={() => setNotificationSettings({ ...notificationSettings, rankChange: !notificationSettings.rankChange })}>
+            <View style={[styles.toggleThumb, notificationSettings.rankChange && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>수익률 도달 알림</Text>
+          <TouchableOpacity
+            style={[styles.toggle, notificationSettings.profitRate && { backgroundColor: '#6366F1' }]}
+            onPress={() => setNotificationSettings({ ...notificationSettings, profitRate: !notificationSettings.profitRate })}>
+            <View style={[styles.toggleThumb, notificationSettings.profitRate && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>푸시 알림</Text>
+          <TouchableOpacity
+            style={[styles.toggle, notificationSettings.pushNotification && { backgroundColor: '#6366F1' }]}
+            onPress={() => setNotificationSettings({ ...notificationSettings, pushNotification: !notificationSettings.pushNotification })}>
+            <View style={[styles.toggleThumb, notificationSettings.pushNotification && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>일일 요약 알림</Text>
+          <TouchableOpacity
+            style={[styles.toggle, notificationSettings.dailySummary && { backgroundColor: '#6366F1' }]}
+            onPress={() => setNotificationSettings({ ...notificationSettings, dailySummary: !notificationSettings.dailySummary })}>
+            <View style={[styles.toggleThumb, notificationSettings.dailySummary && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>관심 종목 가격 알림</Text>
+          <TouchableOpacity
+            style={[styles.toggle, notificationSettings.stockPriceAlert && { backgroundColor: '#6366F1' }]}
+            onPress={() => setNotificationSettings({ ...notificationSettings, stockPriceAlert: !notificationSettings.stockPriceAlert })}>
+            <View style={[styles.toggleThumb, notificationSettings.stockPriceAlert && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={styles.settingItemLink}
+          onPress={() => Alert.alert('방해 금지 시간', '시간대 설정 기능은 추후 구현 예정입니다.')}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>방해 금지 시간</Text>
+          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
+        </TouchableOpacity>
+      </View>
+
+      {/* 팀 설정 */}
+      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={styles.settingsSectionHeader}>
+          <Text style={[styles.settingsSectionIcon]}>🎮</Text>
+          <ThemedText type="subtitle" style={styles.cardTitle}>팀 설정</ThemedText>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>팀 초대 알림</Text>
+          <TouchableOpacity
+            style={[styles.toggle, gameSettings.teamInviteAlert && { backgroundColor: '#6366F1' }]}
+            onPress={() => setGameSettings({ ...gameSettings, teamInviteAlert: !gameSettings.teamInviteAlert })}>
+            <View style={[styles.toggleThumb, gameSettings.teamInviteAlert && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>자동 매칭 허용</Text>
+          <TouchableOpacity
+            style={[styles.toggle, gameSettings.autoMatching && { backgroundColor: '#6366F1' }]}
+            onPress={() => setGameSettings({ ...gameSettings, autoMatching: !gameSettings.autoMatching })}>
+            <View style={[styles.toggleThumb, gameSettings.autoMatching && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>공개 프로필</Text>
+          <TouchableOpacity
+            style={[styles.toggle, gameSettings.publicProfile && { backgroundColor: '#6366F1' }]}
+            onPress={() => setGameSettings({ ...gameSettings, publicProfile: !gameSettings.publicProfile })}>
+            <View style={[styles.toggleThumb, gameSettings.publicProfile && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* UI/환경 설정 */}
+      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={styles.settingsSectionHeader}>
+          <Text style={[styles.settingsSectionIcon]}>🎨</Text>
+          <ThemedText type="subtitle" style={styles.cardTitle}>UI/환경 설정</ThemedText>
+        </View>
+
+        <View style={styles.settingItem}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>다크모드</Text>
+          <TouchableOpacity
+            style={[styles.toggle, uiSettings.darkMode && { backgroundColor: '#6366F1' }]}
+            onPress={() => {
+              setUiSettings({ ...uiSettings, darkMode: !uiSettings.darkMode });
+              Alert.alert('다크모드', '다크모드 전환 기능은 추후 구현 예정입니다.');
+            }}>
+            <View style={[styles.toggleThumb, uiSettings.darkMode && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* 이용 및 정책 */}
+      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={styles.settingsSectionHeader}>
+          <Text style={[styles.settingsSectionIcon]}>📄</Text>
+          <ThemedText type="subtitle" style={styles.cardTitle}>이용 및 정책</ThemedText>
+        </View>
+
+        <TouchableOpacity
+          style={styles.settingItemLink}
+          onPress={() => Alert.alert('개인정보 처리방침', '개인정보 처리방침 페이지로 이동합니다.')}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>개인정보 처리방침</Text>
+          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.settingItemLink}
+          onPress={() => Alert.alert('서비스 이용약관', '서비스 이용약관 페이지로 이동합니다.')}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>서비스 이용약관</Text>
+          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.settingItemLink, { borderBottomWidth: 0 }]}
+          onPress={() => Alert.alert('오픈소스 라이선스', '오픈소스 라이선스 페이지로 이동합니다.')}>
+          <Text style={[styles.settingLabel, { color: colors.text }]}>오픈소스 라이선스</Text>
+          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
       <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContentContainer}>
@@ -622,12 +810,18 @@ export default function MyScreen() {
             onPress={() => setActiveTab('deposit')}>
             <Text style={[styles.tabText, { color: activeTab === 'deposit' ? '#6366F1' : colors.icon }]}>돈 추가</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
+            onPress={() => setActiveTab('settings')}>
+            <Text style={[styles.tabText, { color: activeTab === 'settings' ? '#6366F1' : colors.icon }]}>설정</Text>
+          </TouchableOpacity>
         </View>
 
         {/* 탭 컨텐츠 */}
         {activeTab === 'info' && renderInfoTab()}
         {activeTab === 'account' && renderAccountTab()}
         {activeTab === 'deposit' && renderDepositTab()}
+        {activeTab === 'settings' && renderSettingsTab()}
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -892,5 +1086,56 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 40,
+  },
+  settingsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  settingsSectionIcon: {
+    fontSize: 20,
+  },
+  settingItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(148, 163, 184, 0.15)',
+  },
+  settingItemLink: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(148, 163, 184, 0.15)',
+  },
+  settingLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  toggle: {
+    width: 50,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#CBD5E1',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleThumb: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleThumbActive: {
+    alignSelf: 'flex-end',
   },
 });
