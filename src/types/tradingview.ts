@@ -58,21 +58,42 @@ export function searchSymbols(query: string, type: 'crypto' | 'stock' | 'all' = 
 
   const results: Stock[] = [];
 
-  // 암호화폐 검색만 지원
-  CRYPTO_SYMBOLS.forEach(crypto => {
-    const matchesSymbol = crypto.symbol.toLowerCase().includes(lowerQuery);
-    const matchesName = crypto.name.toLowerCase().includes(lowerQuery);
-    const matchesKorean = crypto.koreanName.toLowerCase().includes(lowerQuery);
-    const matchesBase = crypto.baseAsset.toLowerCase().includes(lowerQuery);
+  // 암호화폐 검색
+  if (type === 'crypto' || type === 'all') {
+    CRYPTO_SYMBOLS.forEach(crypto => {
+      const matchesSymbol = crypto.symbol.toLowerCase().includes(lowerQuery);
+      const matchesName = crypto.name.toLowerCase().includes(lowerQuery);
+      const matchesKorean = crypto.koreanName.toLowerCase().includes(lowerQuery);
+      const matchesBase = crypto.baseAsset.toLowerCase().includes(lowerQuery);
 
-    if (matchesSymbol || matchesName || matchesKorean || matchesBase) {
-      results.push({
-        symbol: `BINANCE:${crypto.symbol}`,
-        name: crypto.name,
-        koreanName: crypto.koreanName,
-      });
-    }
-  });
+      if (matchesSymbol || matchesName || matchesKorean || matchesBase) {
+        results.push({
+          symbol: `BINANCE:${crypto.symbol}`,
+          name: crypto.name,
+          koreanName: crypto.koreanName,
+        });
+      }
+    });
+  }
+
+  // 주식 검색
+  if (type === 'stock' || type === 'all') {
+    STOCK_SYMBOLS.forEach(stock => {
+      const ticker = stock.symbol.includes(':') ? stock.symbol.split(':')[1] : stock.symbol;
+      const matchesSymbol = ticker.toLowerCase().includes(lowerQuery);
+      const matchesFullSymbol = stock.symbol.toLowerCase().includes(lowerQuery);
+      const matchesName = stock.name.toLowerCase().includes(lowerQuery);
+      const matchesKorean = stock.koreanName?.toLowerCase().includes(lowerQuery);
+
+      if (matchesSymbol || matchesFullSymbol || matchesName || matchesKorean) {
+        results.push({
+          symbol: stock.symbol,
+          name: stock.name,
+          koreanName: stock.koreanName,
+        });
+      }
+    });
+  }
 
   return results;
 }

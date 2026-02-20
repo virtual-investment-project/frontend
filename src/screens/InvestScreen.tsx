@@ -9,7 +9,8 @@ import { Stock, searchSymbols } from '../types/tradingview';
 import { toggleFavorite } from '../utils/favorites';
 import { useFavoritesContext, FavoriteWithPrice } from '../contexts/FavoritesContext';
 import { Account } from '../types/account';
-import { getPersonalAccount } from '../services/accountService';
+import { getPersonalAccount, getBattleAccount } from '../services/accountService';
+import { getAllBattles } from '../services/battleService';
 import { createOrder, getOrdersByAccount, cancelOrder, OrderResponse } from '../services/orderService';
 
 interface StockWithPrice extends Stock {
@@ -57,25 +58,52 @@ export default function InvestScreen() {
   const [investmentAmount, setInvestmentAmount] = useState(0); // 투자 금액 (원화)
 
 
-  // 계좌 정보 조회
+  // 계좌 정보 조회 (개인 + 배틀 계좌)
   useEffect(() => {
-    const fetchAccount = async () => {
+    const fetchAccounts = async () => {
+      const allAccounts: Account[] = [];
+
+      // 1. 개인 계좌 조회
       try {
         const data = await getPersonalAccount();
-        const account: Account = {
+        allAccounts.push({
           id: data.id,
           accountName: data.name,
           balance: data.balance,
           totalAsset: data.totalAsset,
-        };
-        setAccounts([account]);
-        setSelectedAccount(account);
+        });
       } catch (error) {
-        console.error('계좌 조회 실패:', error);
+        console.log('개인 계좌 없음 또는 조회 실패');
+      }
+
+      // 2. 배틀 계좌 조회 (참여 중인 배틀들)
+      try {
+        const battles = await getAllBattles();
+        for (const battle of battles) {
+          if (battle.status === 'END') continue; // 종료된 배틀 제외
+          try {
+            const data = await getBattleAccount(battle.id);
+            allAccounts.push({
+              id: data.id,
+              accountName: data.name,
+              balance: data.balance,
+              totalAsset: data.totalAsset,
+            });
+          } catch {
+            // 해당 배틀에 참여하지 않은 경우 무시
+          }
+        }
+      } catch (error) {
+        console.error('배틀 목록 조회 실패:', error);
+      }
+
+      setAccounts(allAccounts);
+      if (allAccounts.length > 0 && !selectedAccount) {
+        setSelectedAccount(allAccounts[0]);
       }
     };
 
-    fetchAccount();
+    fetchAccounts();
   }, []);
 
   // 검색어 변경 처리
@@ -828,9 +856,17 @@ export default function InvestScreen() {
               <TouchableOpacity
                 style={[styles.accountSelector, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
                 onPress={() => setShowAccountPicker(true)}>
-                <Text style={[styles.accountName, { color: colors.text }]}>
-                  {selectedAccount?.accountName || '계좌를 선택하세요'}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.accountName, { color: selectedAccount ? colors.text : colors.icon }]}>
+                    {selectedAccount?.accountName || '계좌를 선택하세요'}
+                  </Text>
+                  {selectedAccount && (
+                    <Text style={{ fontSize: 12, color: colors.icon, marginTop: 2 }}>
+                      잔액: ${selectedAccount.balance.toLocaleString()}
+                    </Text>
+                  )}
+                </View>
+                <IconSymbol size={16} name="chevron.down" color={colors.icon} />
               </TouchableOpacity>
             </View>
 
@@ -918,24 +954,38 @@ export default function InvestScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.accountList}>
-              {accounts.map((account) => (
-                <TouchableOpacity
-                  key={account.id}
-                  style={[
-                    styles.accountItem,
-                    { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
-                    selectedAccount?.id === account.id && styles.selectedAccountItem,
-                  ]}
-                  onPress={() => {
-                    setSelectedAccount(account);
-                    setShowAccountPicker(false);
-                    setInvestmentRatio(0);
-                    setInvestmentAmount(0);
-                    setOrderQuantity('');
-                  }}>
-                  <Text style={[styles.accountItemName, { color: colors.text }]}>{account.accountName}</Text>
-                </TouchableOpacity>
-              ))}
+              {accounts.length === 0 ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: colors.icon }}>계좌가 없습니다. 마이페이지에서 개인 계좌를 생성하거나 배틀에 참여하세요.</Text>
+                </View>
+              ) : (
+                accounts.map((account) => (
+                  <TouchableOpacity
+                    key={account.id}
+                    style={[
+                      styles.accountItem,
+                      { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
+                      selectedAccount?.id === account.id && styles.selectedAccountItem,
+                    ]}
+                    onPress={() => {
+                      setSelectedAccount(account);
+                      setShowAccountPicker(false);
+                      setInvestmentRatio(0);
+                      setInvestmentAmount(0);
+                      setOrderQuantity('');
+                    }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.accountItemName, { color: colors.text }]}>{account.accountName}</Text>
+                      <Text style={{ fontSize: 13, color: colors.icon, marginTop: 4 }}>
+                        잔액: ${account.balance.toLocaleString()}
+                      </Text>
+                    </View>
+                    {selectedAccount?.id === account.id && (
+                      <IconSymbol size={20} name="checkmark.circle.fill" color="#6366F1" />
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
           </View>
         </View>
@@ -1370,13 +1420,15 @@ const styles = StyleSheet.create({
     maxHeight: 400,
   },
   accountItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 16,
     borderRadius: 12,
     marginBottom: 12,
   },
   selectedAccountItem: {
     borderWidth: 2,
-    borderColor: '#10B981',
+    borderColor: '#6366F1',
   },
   accountItemName: {
     fontSize: 15,

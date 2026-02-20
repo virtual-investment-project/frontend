@@ -148,7 +148,7 @@ export default function TeamsScreen() {
                     styles.shadow,
                     { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }
                   ]}
-                  onPress={() => navigation.navigate('BattleDetail', { id: battle.id })}>
+                  onPress={() => navigation.navigate('BattleDetail', { battleId: battle.id })}>
 
                   {/* 카드 헤더 */}
                   <View style={styles.battleHeader}>

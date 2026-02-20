@@ -9,6 +9,7 @@ import { useState, useCallback } from 'react';
 import { getBattleById } from '../services/battleService';
 import { getTeamsByBattleId, getTeamMembers } from '../services/teamService';
 import { getCommentsByBattleId, createComment } from '../services/commentService';
+import { getBattleAccount } from '../services/accountService';
 import { BattleResponse, BattleStatus, TeamResponse, TeamMemberResponse, CommentResponse } from '../types/api';
 import JoinBattleModal from '../components/JoinBattleModal';
 
@@ -77,6 +78,8 @@ export default function BattleDetailScreen() {
   const [loadingComments, setLoadingComments] = useState(false);
   const [postingComment, setPostingComment] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [isParticipating, setIsParticipating] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<{ id: number; nickname: string } | null>(null);
 
   // 배틀 상세 조회
   const fetchBattleDetail = useCallback(async () => {
@@ -119,6 +122,16 @@ export default function BattleDetailScreen() {
     }
   }, [id]);
 
+  // 참여 여부 확인
+  const checkParticipation = useCallback(async () => {
+    try {
+      await getBattleAccount(id);
+      setIsParticipating(true);
+    } catch {
+      setIsParticipating(false);
+    }
+  }, [id]);
+
   // 댓글 목록 조회
   const fetchComments = useCallback(async () => {
     try {
@@ -138,7 +151,8 @@ export default function BattleDetailScreen() {
       fetchBattleDetail();
       fetchTeams();
       fetchComments();
-    }, [fetchBattleDetail, fetchTeams, fetchComments])
+      checkParticipation();
+    }, [fetchBattleDetail, fetchTeams, fetchComments, checkParticipation])
   );
 
   const stocks: Stock[] = battle?.ticker ? [
@@ -152,8 +166,6 @@ export default function BattleDetailScreen() {
     },
   ] : [];
 
-  const isParticipating = false; // 임시 - 추후 API에서 확인
-
   const handleTrade = () => {
     navigation.navigate('Main');
   };
@@ -163,8 +175,9 @@ export default function BattleDetailScreen() {
   };
 
   const handleJoinSuccess = () => {
-    // 팀 목록 새로고침
+    // 팀 목록 및 참여 상태 새로고침
     fetchTeams();
+    checkParticipation();
   };
 
   const handlePostComment = async () => {
@@ -175,9 +188,10 @@ export default function BattleDetailScreen() {
       await createComment(id, {
         battleId: id,
         content: commentText.trim(),
-        parentId: null,
+        parentId: replyingTo?.id ?? null,
       });
       setCommentText('');
+      setReplyingTo(null);
       // 댓글 목록 새로고침
       await fetchComments();
     } catch (err: any) {
@@ -519,32 +533,17 @@ export default function BattleDetailScreen() {
           );
         })}
 
-        {/* 참여/매매 버튼 */}
-        <View style={styles.actionButtons}>
-          {isParticipating ? (
-            <>
-              <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#10B981', flex: 1 }]}
-                onPress={handleTrade}>
-                <IconSymbol size={20} name="cart.fill" color="#FFFFFF" />
-                <Text style={styles.actionButtonText}>매수하기</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#EF4444', flex: 1 }]}
-                onPress={handleTrade}>
-                <IconSymbol size={20} name="arrow.up.circle.fill" color="#FFFFFF" />
-                <Text style={styles.actionButtonText}>매도하기</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
+        {/* 참여 버튼 - 이미 참여한 경우 숨김 */}
+        {!isParticipating && (
+          <View style={styles.actionButtons}>
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: '#6366F1' }]}
               onPress={handleJoinBattle}>
               <IconSymbol size={20} name="person.badge.plus.fill" color="#FFFFFF" />
               <Text style={styles.actionButtonText}>대결 참여하기</Text>
             </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
 
         {/* 댓글 섹션 */}
         <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
@@ -554,28 +553,46 @@ export default function BattleDetailScreen() {
             </ThemedText>
           </View>
 
-          {/* 댓글 입력 */}
-          <View style={[styles.commentInputContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-            <TextInput
-              style={[styles.commentInput, { color: colors.text }]}
-              placeholder="댓글을 입력하세요..."
-              placeholderTextColor={colors.icon}
-              value={commentText}
-              onChangeText={setCommentText}
-              multiline
-              editable={!postingComment}
-            />
-            <TouchableOpacity
-              style={[styles.commentButton, { backgroundColor: postingComment ? '#94A3B8' : '#6366F1' }]}
-              onPress={handlePostComment}
-              disabled={postingComment}>
-              {postingComment ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <IconSymbol size={18} name="paperplane.fill" color="#FFFFFF" />
-              )}
-            </TouchableOpacity>
-          </View>
+          {/* 대댓글 표시 */}
+          {isParticipating && replyingTo && (
+            <View style={[styles.replyingIndicator, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#EEF2FF' }]}>
+              <Text style={[styles.replyingText, { color: colors.icon }]}>
+                <Text style={{ fontWeight: '700', color: '#6366F1' }}>{replyingTo.nickname}</Text>님에게 답글 작성 중
+              </Text>
+              <TouchableOpacity onPress={() => { setReplyingTo(null); setCommentText(''); }}>
+                <IconSymbol size={16} name="xmark.circle.fill" color={colors.icon} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* 댓글 입력 - 참여자만 */}
+          {isParticipating ? (
+            <View style={[styles.commentInputContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+              <TextInput
+                style={[styles.commentInput, { color: colors.text }]}
+                placeholder={replyingTo ? `${replyingTo.nickname}님에게 답글...` : '댓글을 입력하세요...'}
+                placeholderTextColor={colors.icon}
+                value={commentText}
+                onChangeText={setCommentText}
+                multiline
+                editable={!postingComment}
+              />
+              <TouchableOpacity
+                style={[styles.commentButton, { backgroundColor: postingComment ? '#94A3B8' : '#6366F1' }]}
+                onPress={handlePostComment}
+                disabled={postingComment}>
+                {postingComment ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <IconSymbol size={18} name="paperplane.fill" color="#FFFFFF" />
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.commentInputContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', justifyContent: 'center', alignItems: 'center', paddingVertical: 14 }]}>
+              <Text style={{ color: colors.icon, fontSize: 13 }}>배틀에 참여해야 댓글을 작성할 수 있습니다.</Text>
+            </View>
+          )}
 
           {/* 댓글 목록 */}
           <View style={styles.commentsList}>
@@ -609,6 +626,19 @@ export default function BattleDetailScreen() {
                   <Text style={[styles.commentContent, { color: comment.isDeleted ? colors.icon : colors.text }]}>
                     {comment.isDeleted ? '삭제된 댓글입니다.' : comment.content}
                   </Text>
+
+                  {/* 답글 버튼 - 참여자만 */}
+                  {!comment.isDeleted && isParticipating && (
+                    <TouchableOpacity
+                      style={styles.replyButton}
+                      onPress={() => {
+                        setReplyingTo({ id: comment.id, nickname: comment.userNickname });
+                        setCommentText('');
+                      }}>
+                      <IconSymbol size={14} name="arrowshape.turn.up.left.fill" color={colors.icon} />
+                      <Text style={[styles.replyButtonText, { color: colors.icon }]}>답글</Text>
+                    </TouchableOpacity>
+                  )}
 
                   {/* 대댓글 표시 */}
                   {comment.replies && comment.replies.length > 0 && (
@@ -1037,6 +1067,30 @@ const styles = StyleSheet.create({
   },
   replyItem: {
     paddingVertical: 8,
+  },
+  replyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
+  replyButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  replyingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  replyingText: {
+    fontSize: 13,
   },
   likeButton: {
     flexDirection: 'row',

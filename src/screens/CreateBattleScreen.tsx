@@ -6,9 +6,10 @@ import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createBattle } from '../services/battleService';
 import { BattleType, MetricType } from '../types/api';
+import { Stock, searchSymbols } from '../types/tradingview';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -58,6 +59,7 @@ export default function CreateBattleScreen() {
   const [battleData, setBattleData] = useState({
     name: '',
     ticker: '',
+    tickerName: '',
     type: 'NORMAL' as BattleType,
     startAt: '',
     endAt: '',
@@ -71,6 +73,21 @@ export default function CreateBattleScreen() {
   });
   const [inviteCode, setInviteCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [tickerQuery, setTickerQuery] = useState('');
+  const [tickerResults, setTickerResults] = useState<Stock[]>([]);
+  const [showTickerResults, setShowTickerResults] = useState(false);
+
+  // 종목 검색
+  useEffect(() => {
+    if (tickerQuery.trim()) {
+      const results = searchSymbols(tickerQuery, 'all');
+      setTickerResults(results);
+      setShowTickerResults(true);
+    } else {
+      setTickerResults([]);
+      setShowTickerResults(false);
+    }
+  }, [tickerQuery]);
 
   const generateInviteCode = () => {
     const code = Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -300,13 +317,84 @@ export default function CreateBattleScreen() {
                 <Text style={[styles.label, { color: colors.text }]}>
                   종목 티커 <Text style={{ color: '#EF4444' }}>*</Text>
                 </Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
-                  placeholder="예: NVDA 또는 005930"
-                  placeholderTextColor={colors.icon}
-                  value={battleData.ticker}
-                  onChangeText={(text) => setBattleData({ ...battleData, ticker: text })}
-                />
+                {battleData.ticker ? (
+                  <View style={[styles.selectedTickerContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.selectedTickerSymbol, { color: colors.text }]}>
+                        {battleData.ticker}
+                      </Text>
+                      {battleData.tickerName ? (
+                        <Text style={[styles.selectedTickerName, { color: colors.icon }]}>
+                          {battleData.tickerName}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setBattleData({ ...battleData, ticker: '', tickerName: '' });
+                        setTickerQuery('');
+                      }}
+                      style={styles.clearTickerButton}>
+                      <IconSymbol size={18} name="xmark.circle.fill" color={colors.icon} />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    <View style={[styles.searchInputContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+                      <IconSymbol size={18} name="magnifyingglass" color={colors.icon} />
+                      <TextInput
+                        style={[styles.searchInput, { color: colors.text }]}
+                        placeholder="종목명 또는 티커를 검색하세요"
+                        placeholderTextColor={colors.icon}
+                        value={tickerQuery}
+                        onChangeText={setTickerQuery}
+                        autoCapitalize="none"
+                      />
+                      {tickerQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setTickerQuery('')}>
+                          <IconSymbol size={18} name="xmark.circle.fill" color={colors.icon} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {showTickerResults && (
+                      <View style={[styles.tickerResultsContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+                        {tickerResults.length > 0 ? (
+                          tickerResults.map((stock) => {
+                            const displaySymbol = stock.symbol.includes(':') ? stock.symbol.split(':')[1] : stock.symbol;
+                            return (
+                              <TouchableOpacity
+                                key={stock.symbol}
+                                style={[styles.tickerResultItem, { borderBottomColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}
+                                onPress={() => {
+                                  setBattleData({
+                                    ...battleData,
+                                    ticker: displaySymbol,
+                                    tickerName: stock.koreanName ? `${stock.koreanName} · ${stock.name}` : stock.name,
+                                  });
+                                  setTickerQuery('');
+                                  setShowTickerResults(false);
+                                }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={[styles.tickerResultSymbol, { color: colors.text }]}>
+                                    {displaySymbol}
+                                  </Text>
+                                  <Text style={[styles.tickerResultName, { color: colors.icon }]}>
+                                    {stock.koreanName ? `${stock.koreanName} · ${stock.name}` : stock.name}
+                                  </Text>
+                                </View>
+                                <IconSymbol size={16} name="chevron.right" color={colors.icon} />
+                              </TouchableOpacity>
+                            );
+                          })
+                        ) : (
+                          <View style={styles.noResultContainer}>
+                            <Text style={{ color: colors.icon, fontSize: 13 }}>검색 결과가 없습니다</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </>
+                )}
               </View>
 
               <View style={styles.inputGroup}>
@@ -849,6 +937,63 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
     textAlign: 'right',
+  },
+  selectedTickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#6366F1',
+  },
+  selectedTickerSymbol: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  selectedTickerName: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  clearTickerButton: {
+    padding: 4,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    height: 48,
+    borderRadius: 12,
+    gap: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    height: 48,
+  },
+  tickerResultsContainer: {
+    borderRadius: 12,
+    marginTop: 8,
+    maxHeight: 240,
+    overflow: 'hidden',
+  },
+  tickerResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+  },
+  tickerResultSymbol: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  tickerResultName: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  noResultContainer: {
+    padding: 20,
+    alignItems: 'center',
   },
   footer: {
     padding: 20,
