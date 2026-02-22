@@ -14,6 +14,7 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { GOOGLE_WEB_CLIENT_ID } from '@env';
 import { getPersonalAccount, createPersonalAccount, getPersonalStocks, getPersonalTransactions, getPendingOrders, getPersonalBattleProfits } from '../services/accountService';
 import { AccountResponse, StockHoldingResponse, TransactionResponse, PendingOrderResponse, BattleProfitResponse } from '../types/api';
+import { useTheme } from '../contexts/ThemeContext';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -60,7 +61,6 @@ export default function MyScreen() {
     company: '',
   });
 
-  // 컴포넌트 마운트 시 GoogleSignin 설정 및 사용자 정보 로드
   // 설정 상태
   const [notificationSettings, setNotificationSettings] = useState({
     orderExecution: true,
@@ -72,15 +72,8 @@ export default function MyScreen() {
     stockPriceAlert: false,
   });
 
-  const [gameSettings, setGameSettings] = useState({
-    teamInviteAlert: true,
-    autoMatching: false,
-    publicProfile: true,
-  });
-
-  const [uiSettings, setUiSettings] = useState({
-    darkMode: colorScheme === 'dark',
-  });
+  // ThemeContext에서 다크모드 상태 가져오기
+  const { darkMode, toggleDarkMode } = useTheme();
 
   // 컴포넌트 마운트 시 사용자 정보 로드
   useEffect(() => {
@@ -112,7 +105,7 @@ export default function MyScreen() {
       console.error('Profile Fetch Error:', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
-      
+
       // 인증 오류인 경우 로그인 화면으로
       if (error.response?.status === 401 || error.response?.status === 403) {
         Alert.alert('로그인 필요', '로그인이 필요합니다.', [
@@ -126,7 +119,7 @@ export default function MyScreen() {
         ]);
       } else {
         Alert.alert(
-          '오류', 
+          '오류',
           `사용자 정보를 불러오는데 실패했습니다.\n${error.response?.data?.message || error.message || '네트워크 오류'}`
         );
       }
@@ -692,41 +685,6 @@ export default function MyScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 팀 설정 */}
-      <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-        <View style={styles.settingsSectionHeader}>
-          <Text style={[styles.settingsSectionIcon]}>🎮</Text>
-          <ThemedText type="subtitle" style={styles.cardTitle}>팀 설정</ThemedText>
-        </View>
-
-        <View style={styles.settingItem}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>팀 초대 알림</Text>
-          <TouchableOpacity
-            style={[styles.toggle, gameSettings.teamInviteAlert && { backgroundColor: '#6366F1' }]}
-            onPress={() => setGameSettings({ ...gameSettings, teamInviteAlert: !gameSettings.teamInviteAlert })}>
-            <View style={[styles.toggleThumb, gameSettings.teamInviteAlert && styles.toggleThumbActive]} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.settingItem}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>자동 매칭 허용</Text>
-          <TouchableOpacity
-            style={[styles.toggle, gameSettings.autoMatching && { backgroundColor: '#6366F1' }]}
-            onPress={() => setGameSettings({ ...gameSettings, autoMatching: !gameSettings.autoMatching })}>
-            <View style={[styles.toggleThumb, gameSettings.autoMatching && styles.toggleThumbActive]} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.settingItem}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>공개 프로필</Text>
-          <TouchableOpacity
-            style={[styles.toggle, gameSettings.publicProfile && { backgroundColor: '#6366F1' }]}
-            onPress={() => setGameSettings({ ...gameSettings, publicProfile: !gameSettings.publicProfile })}>
-            <View style={[styles.toggleThumb, gameSettings.publicProfile && styles.toggleThumbActive]} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
       {/* UI/환경 설정 */}
       <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
         <View style={styles.settingsSectionHeader}>
@@ -737,12 +695,17 @@ export default function MyScreen() {
         <View style={styles.settingItem}>
           <Text style={[styles.settingLabel, { color: colors.text }]}>다크모드</Text>
           <TouchableOpacity
-            style={[styles.toggle, uiSettings.darkMode && { backgroundColor: '#6366F1' }]}
-            onPress={() => {
-              setUiSettings({ ...uiSettings, darkMode: !uiSettings.darkMode });
-              Alert.alert('다크모드', '다크모드 전환 기능은 추후 구현 예정입니다.');
+            style={[styles.toggle, darkMode && { backgroundColor: '#6366F1' }]}
+            onPress={async () => {
+              try {
+                await toggleDarkMode();
+                Alert.alert('다크모드', `다크모드가 ${!darkMode ? '켜졌' : '꺼졌'}습니다.`);
+              } catch (error) {
+                console.error('Settings Update Error:', error);
+                Alert.alert('오류', '설정 업데이트에 실패했습니다.');
+              }
             }}>
-            <View style={[styles.toggleThumb, uiSettings.darkMode && styles.toggleThumbActive]} />
+            <View style={[styles.toggleThumb, darkMode && styles.toggleThumbActive]} />
           </TouchableOpacity>
         </View>
       </View>
