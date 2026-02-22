@@ -71,8 +71,8 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // 401 에러이고, 재시도하지 않은 요청인 경우
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // 401 또는 403 에러이고, 재시도하지 않은 요청인 경우 (Spring Security는 인증 실패 시 403을 반환할 수 있음)
+    if ((error.response?.status === 401 || error.response?.status === 403) && !originalRequest._retry) {
       // Refresh 엔드포인트에서 실패한 경우는 로그아웃 처리
       if (originalRequest.url?.includes('/api/auth/refresh')) {
         isRefreshing = false;
@@ -90,6 +90,8 @@ apiClient.interceptors.response.use(
         })
           .then((token) => {
             originalRequest.headers.Authorization = `Bearer ${token}`;
+            // 재시도 플래그 설정 (무한 루프 방지)
+            originalRequest._retry = true;
             return apiClient(originalRequest);
           })
           .catch((err) => {

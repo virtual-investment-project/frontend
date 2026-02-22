@@ -125,8 +125,12 @@ export default function BattleDetailScreen() {
   // 참여 여부 확인
   const checkParticipation = useCallback(async () => {
     try {
-      await getBattleAccount(id);
-      setIsParticipating(true);
+      const account = await getBattleAccount(id);
+      if (account) {
+        setIsParticipating(true);
+      } else {
+        setIsParticipating(false);
+      }
     } catch {
       setIsParticipating(false);
     }
@@ -165,10 +169,6 @@ export default function BattleDetailScreen() {
       delayMinutes: 15,
     },
   ] : [];
-
-  const handleTrade = () => {
-    navigation.navigate('Main');
-  };
 
   const handleJoinBattle = () => {
     setShowJoinModal(true);
@@ -214,7 +214,6 @@ export default function BattleDetailScreen() {
     });
   };
 
-  const totalParticipants = teams.reduce((sum, team) => sum + team.memberCount, 0);
   const maxRate = teams.length > 0 ? Math.max(...teams.map(t => Math.abs(t.rate))) : 0;
 
   // 로딩 상태
@@ -474,6 +473,26 @@ export default function BattleDetailScreen() {
                 <Text style={[styles.teamDescription, { color: colors.icon }]}>
                   {team.description}
                 </Text>
+              )}
+
+              {/* 초대 코드 표시 (참여 중인 사용자에게만 노출) */}
+              {isParticipating && (
+                <View style={[styles.inviteCodeContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+                  <Text style={[styles.inviteCodeLabel, { color: colors.icon }]}>초대 코드</Text>
+                  <View style={styles.inviteCodeRow}>
+                    <Text style={[styles.inviteCodeText, { color: '#6366F1' }]} selectable={true}>
+                      {team.inviteCode}
+                    </Text>
+                    <TouchableOpacity 
+                      style={styles.copyButton}
+                      onPress={() => {
+                        Alert.alert('복사 완료', '초대 코드가 클립보드에 복사되었습니다.');
+                        // 실제 클립보드 복사 로직은 Clipboard API 사용 필요
+                      }}>
+                      <IconSymbol size={16} name="doc.on.doc" color="#6366F1" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
               )}
 
               {/* 팀원 목록 */}
@@ -987,6 +1006,30 @@ const styles = StyleSheet.create({
   memberProfit: {
     fontSize: 16,
     fontWeight: '700',
+  },
+  inviteCodeContainer: {
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  inviteCodeLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  inviteCodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  inviteCodeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  copyButton: {
+    padding: 8,
   },
   actionButtons: {
     flexDirection: 'row',

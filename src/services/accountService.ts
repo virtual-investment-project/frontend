@@ -33,10 +33,14 @@ export const getPersonalAccount = async (): Promise<AccountResponse> => {
  */
 export const getBattleAccount = async (
   battleId: string
-): Promise<AccountResponse> => {
+): Promise<AccountResponse | null> => {
   const response = await apiClient.get<AccountResponse>(
     `/api/accounts/battle/${battleId}`
   );
+  // 204 No Content인 경우 null 반환
+  if (response.status === 204) {
+    return null;
+  }
   return response.data;
 };
 

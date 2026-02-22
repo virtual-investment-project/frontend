@@ -83,12 +83,14 @@ export default function InvestScreen() {
           if (battle.status === 'END') continue; // 종료된 배틀 제외
           try {
             const data = await getBattleAccount(battle.id);
-            allAccounts.push({
-              id: data.id,
-              accountName: data.name,
-              balance: data.balance,
-              totalAsset: data.totalAsset,
-            });
+            if (data) {
+              allAccounts.push({
+                id: data.id,
+                accountName: data.name,
+                balance: data.balance,
+                totalAsset: data.totalAsset,
+              });
+            }
           } catch {
             // 해당 배틀에 참여하지 않은 경우 무시
           }
