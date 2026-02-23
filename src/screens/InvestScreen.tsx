@@ -28,8 +28,9 @@ interface Order {
   price: number;
   quantity: number;
   totalAmount: number;
-  status: 'pending' | 'filled';
+  status: 'pending' | 'filled' | 'cancelled';
   orderTime: string;
+  accountName: string;
 }
 
 export default function InvestScreen() {
@@ -141,8 +142,9 @@ export default function InvestScreen() {
         price: parseFloat(order.orderPrice),
         quantity: parseFloat(order.quantity),
         totalAmount: parseFloat(order.totalAmount),
-        status: order.status.toLowerCase() as 'pending' | 'filled',
+        status: order.status.toLowerCase() as 'pending' | 'filled' | 'cancelled',
         orderTime: new Date(order.createdAt).toLocaleString('ko-KR'),
+        accountName: order.accountName || '',
       }));
       setOrders(formattedOrders);
     } catch (error) {
@@ -852,12 +854,16 @@ export default function InvestScreen() {
                   <View
                     style={[
                       styles.orderStatusBadge,
-                      { backgroundColor: order.status === 'filled' ? '#10B981' : '#F59E0B' },
+                      { backgroundColor: order.status === 'filled' ? '#10B981' : order.status === 'cancelled' ? '#94A3B8' : '#F59E0B' },
                     ]}>
-                    <Text style={styles.orderStatusText}>{order.status === 'filled' ? '체결' : '예약'}</Text>
+                    <Text style={styles.orderStatusText}>
+                      {order.status === 'filled' ? '체결' : order.status === 'cancelled' ? '취소' : '예약'}
+                    </Text>
                   </View>
                 </View>
-                <Text style={[styles.orderTime, { color: colors.icon }]}>{order.orderTime}</Text>
+                <Text style={[styles.orderTime, { color: colors.icon }]}>
+                  {order.orderTime}  ·  {order.accountName}
+                </Text>
               </View>
               <View
                 style={[styles.orderTypeBadge, { backgroundColor: order.type === 'buy' ? '#10B981' : '#EF4444' }]}>
