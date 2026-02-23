@@ -66,12 +66,23 @@ export interface AccountResponse {
 
 // 보유 종목
 export interface StockHoldingResponse {
+  id: string;
+  accountId: string;
+  stockCode: string;
+  stockName: string;
+  quantity: string;      // BigDecimal → string
+  averagePrice: string;  // BigDecimal → string
+  currentPrice: string | null;
+  updatedAt: string;
+}
+
+// 내 계좌 목록 응답
+export interface MyAccountResponse {
+  id: string;
   name: string;
-  quantity: number;
-  avgPrice: number;
-  currentPrice: number;
-  profitRate: number;
-  profit: number;
+  balance: number;
+  seedMoney: number;
+  totalAsset: number;
 }
 
 // 거래내역

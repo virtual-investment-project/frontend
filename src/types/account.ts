@@ -12,6 +12,7 @@ export interface CreateOrderRequest {
   stockCode: string;
   stockName: string;
   orderPrice: number;
+  currentPrice: number;
   quantity: number;
   orderType: 'BUY' | 'SELL';
 }

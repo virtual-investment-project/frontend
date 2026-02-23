@@ -459,24 +459,33 @@ export default function MyScreen() {
               <Text style={{ color: colors.icon }}>보유 종목이 없습니다</Text>
             </View>
           ) : (
-            stocks.map((stock, index) => (
-              <View key={index} style={[styles.stockItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.stockName, { color: colors.text }]}>{stock.name}</Text>
-                  <Text style={[styles.stockDetail, { color: colors.icon }]}>
-                    {stock.quantity}주 • 평균 ${formatNumber(stock.avgPrice)}
-                  </Text>
+            stocks.map((stock, index) => {
+              const qty = parseFloat(stock.quantity);
+              const avgPrice = parseFloat(stock.averagePrice);
+              const curPrice = parseFloat(stock.currentPrice ?? stock.averagePrice ?? '0');
+              const profitLossVal = (curPrice - avgPrice) * qty;
+              const profitRateVal = avgPrice > 0 ? ((curPrice - avgPrice) / avgPrice) * 100 : 0;
+
+              return (
+                <View key={stock.id} style={[styles.stockItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.stockName, { color: colors.text }]}>{stock.stockName}</Text>
+                    <Text style={[styles.stockDetail, { color: colors.icon }]}>
+                      {qty.toFixed(4)}주 • 평균 ${avgPrice.toFixed(2)}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={[styles.stockProfit, { color: profitRateVal > 0 ? '#10B981' : '#EF4444' }]}>
+                      {profitRateVal > 0 ? '+' : ''}{profitRateVal.toFixed(2)}%
+                    </Text>
+                    <Text style={[styles.stockDetail, { color: profitRateVal > 0 ? '#10B981' : '#EF4444' }]}>
+                      {profitLossVal > 0 ? '+' : ''}${profitLossVal.toFixed(2)}
+                    </Text>
+                  </View>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.stockProfit, { color: stock.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
-                    {stock.profitRate > 0 ? '+' : ''}{stock.profitRate}%
-                  </Text>
-                  <Text style={[styles.stockDetail, { color: stock.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
-                    {stock.profit > 0 ? '+' : ''}${formatNumber(stock.profit)}
-                  </Text>
-                </View>
-              </View>
-            ))
+              );
+            })
+
           )}
         </View>
 

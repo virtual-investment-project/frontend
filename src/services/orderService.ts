@@ -9,6 +9,7 @@ import { CreateOrderRequest } from '../types/account';
 export interface OrderResponse {
     id: string;
     accountId: string;
+    accountName: string;
     stockCode: string;
     stockName: string;
     orderPrice: string;
