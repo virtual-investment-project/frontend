@@ -12,8 +12,8 @@ import apiClient from '../api/axiosInstance';
 import { clearAllTokens } from '../utils/tokenStorage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { GOOGLE_WEB_CLIENT_ID } from '@env';
-import { getPersonalAccount, createPersonalAccount, getPersonalStocks, getPersonalTransactions, getPendingOrders, getPersonalBattleProfits } from '../services/accountService';
-import { AccountResponse, StockHoldingResponse, TransactionResponse, PendingOrderResponse, BattleProfitResponse } from '../types/api';
+import { getPersonalAccount, createPersonalAccount, getPersonalStocks, getPersonalTransactions, getPendingOrders, getMyPageProfit } from '../services/accountService';
+import { AccountResponse, StockHoldingResponse, TransactionResponse, PendingOrderResponse, AccountProfitResponse } from '../types/api';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -52,7 +52,7 @@ export default function MyScreen() {
   const [stocks, setStocks] = useState<StockHoldingResponse[]>([]);
   const [transactions, setTransactions] = useState<TransactionResponse[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrderResponse[]>([]);
-  const [battleProfits, setBattleProfits] = useState<BattleProfitResponse[]>([]);
+  const [battleProfits, setBattleProfits] = useState<AccountProfitResponse[]>([]);
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedInfo, setEditedInfo] = useState({
@@ -144,17 +144,19 @@ export default function MyScreen() {
       setPersonalAccount(account);
 
       // 계좌 상세 데이터 병렬 조회
-      const [stocksData, txData, ordersData, battlesData] = await Promise.allSettled([
+      const [stocksData, txData, ordersData, profitData] = await Promise.allSettled([
         getPersonalStocks(),
         getPersonalTransactions(),
         getPendingOrders(),
-        getPersonalBattleProfits(),
+        getMyPageProfit(),
       ]);
 
       setStocks(stocksData.status === 'fulfilled' ? stocksData.value : []);
       setTransactions(txData.status === 'fulfilled' ? txData.value : []);
       setPendingOrders(ordersData.status === 'fulfilled' ? ordersData.value : []);
-      setBattleProfits(battlesData.status === 'fulfilled' ? battlesData.value : []);
+      setBattleProfits(
+        profitData.status === 'fulfilled' ? profitData.value.battleAccounts : []
+      );
     } catch (error: any) {
       // 계좌가 없는 경우
       if (error.response?.status === 404) {
@@ -554,11 +556,13 @@ export default function MyScreen() {
             battleProfits.map((battle, index) => (
               <View key={index} style={[styles.battleItem, index > 0 && { borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB' }]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.stockName, { color: colors.text }]}>{battle.name}</Text>
-                  <Text style={[styles.stockDetail, { color: colors.icon }]}>순위: {battle.rank}위</Text>
+                  <Text style={[styles.stockName, { color: colors.text }]}>{battle.teamName ?? '개인 계좌'}</Text>
+                  <Text style={[styles.stockDetail, { color: colors.icon }]}>
+                    {battle.userName} • 총자산 ${formatNumber(battle.totalAsset)} • 수익금 {battle.returnAmount >= 0 ? '+' : ''}${formatNumber(Math.abs(battle.returnAmount))}
+                  </Text>
                 </View>
-                <Text style={[styles.stockProfit, { color: battle.profitRate > 0 ? '#10B981' : '#EF4444' }]}>
-                  {battle.profitRate > 0 ? '+' : ''}{battle.profitRate}%
+                <Text style={[styles.stockProfit, { color: battle.returnRate >= 0 ? '#10B981' : '#EF4444' }]}>
+                  {battle.returnRate >= 0 ? '+' : ''}{battle.returnRate.toFixed(2)}%
                 </Text>
               </View>
             ))

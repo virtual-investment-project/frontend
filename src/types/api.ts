@@ -64,6 +64,18 @@ export interface AccountResponse {
   totalAsset: number;
 }
 
+export interface AccountProfitResponse {
+  accountId: string;
+  userId: string;
+  userName: string;
+  teamId: number | null;
+  teamName: string | null;
+  seedMoney: number;
+  totalAsset: number;
+  returnAmount: number;
+  returnRate: number;
+}
+
 // 보유 종목
 export interface StockHoldingResponse {
   name: string;
@@ -95,16 +107,28 @@ export interface PendingOrderResponse {
 }
 
 // 대결별 수익률
-export interface BattleProfitResponse {
-  name: string;
-  profitRate: number;
+export interface TeamProfitResponse {
+  teamId: number;
+  teamName: string;
+  battleId: string;
+  totalSeedMoney: number;
+  totalAsset: number;
+  returnAmount: number;
+  returnRate: number;
+  memberCount: number;
   rank: number;
+  members: AccountProfitResponse[];
+}
+
+export interface MyPageProfitResponse {
+  personalAccount: AccountProfitResponse | null;
+  battleAccounts: AccountProfitResponse[];
 }
 
 // Team API 타입 정의
 
 export type TeamUserRole = 'LEADER' | 'MEMBER';
-export type TeamUserStatus = 'ACTIVE' | 'INACTIVE';
+export type TeamUserStatus = 'ACTIVE' | 'LEFT' | 'KICKED';
 
 export interface TeamResponse {
   id: number;
