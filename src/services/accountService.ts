@@ -1,5 +1,5 @@
 import apiClient from '../api/axiosInstance';
-import { AccountResponse, StockHoldingResponse, TransactionResponse, PendingOrderResponse, BattleProfitResponse } from '../types/api';
+import { AccountResponse, StockHoldingResponse, MyAccountResponse, TransactionResponse, PendingOrderResponse, BattleProfitResponse } from '../types/api';
 
 /**
  * Account API Service
@@ -37,6 +37,26 @@ export const getBattleAccount = async (
   const response = await apiClient.get<AccountResponse>(
     `/api/accounts/battle/${battleId}`
   );
+  return response.data;
+};
+
+/**
+ * 내 모든 계좌 조회 (개인 + 배틀)
+ * GET /api/accounts/my
+ * 인증: 필요
+ */
+export const getAllMyAccounts = async (): Promise<MyAccountResponse[]> => {
+  const response = await apiClient.get<MyAccountResponse[]>('/api/accounts/my');
+  return response.data;
+};
+
+/**
+ * 계좌의 보유 종목 조회
+ * GET /api/accounts/{accountId}/stocks
+ * 인증: 필요
+ */
+export const getAccountStocks = async (accountId: string): Promise<StockHoldingResponse[]> => {
+  const response = await apiClient.get<StockHoldingResponse[]>(`/api/accounts/${accountId}/stocks`);
   return response.data;
 };
 
@@ -84,6 +104,8 @@ export default {
   createPersonalAccount,
   getPersonalAccount,
   getBattleAccount,
+  getAllMyAccounts,
+  getAccountStocks,
   getPersonalStocks,
   getPersonalTransactions,
   getPendingOrders,
