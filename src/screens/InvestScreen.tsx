@@ -348,6 +348,7 @@ export default function InvestScreen() {
         stockCode: stockCode,
         stockName: selectedStock.koreanName || selectedStock.name,
         orderPrice: price,
+        currentPrice: selectedStock.currentPrice ?? price,
         quantity: quantity,
         orderType: orderType.toUpperCase() as 'BUY' | 'SELL',
       });
