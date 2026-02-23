@@ -221,25 +221,43 @@ export default function InvestScreen() {
 
   const userBalance = 10000000; // 사용 가능 금액
 
-  // 종목 선택
-  const handleStockSelect = (stock: Stock) => {
+  // 종목 선택 — Binance API로 실시간 가격 조회
+  const handleStockSelect = async (stock: Stock) => {
     const isFav = favorites.some(fav => fav.symbol === stock.symbol);
-    // 임시로 현재가 설정 (실제로는 API에서 가져와야 함)
+
+    // 종목 코드 추출 (BINANCE:BTCUSDT → BTCUSDT, NASDAQ:NVDA → NVDA)
+    const rawCode = stock.symbol.includes(':') ? stock.symbol.split(':')[1] : stock.symbol;
+
+    // 먼저 바텀시트 표시 (로딩 중 0.00 표시 후 갱신)
     const stockWithPrice: StockWithPrice = {
       ...stock,
       isFavorite: isFav,
-      currentPrice: 100.00,
+      currentPrice: 0,
       change: 0,
       changePercent: 0,
       marketCap: 'N/A',
     };
     setSelectedStock(stockWithPrice);
-    setOrderPrice(stockWithPrice.currentPrice?.toString() || '100.00');
+    setOrderPrice('');
     setOrderQuantity('');
     setInvestmentRatio(0);
     setInvestmentAmount(0);
     setSearchQuery('');
     setShowSearchResults(false);
+
+    // Binance 공개 API로 실시간 현재가 조회
+    try {
+      const binanceSymbol = rawCode.replace('/', '').toUpperCase();
+      const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${binanceSymbol}`);
+      if (response.ok) {
+        const data = await response.json();
+        const price = parseFloat(data.price);
+        setSelectedStock(prev => prev ? { ...prev, currentPrice: price } : prev);
+        setOrderPrice(price.toFixed(2));
+      }
+    } catch (error) {
+      console.error('Binance 현재가 조회 실패:', error);
+    }
   };
 
   // 즐겨찾기에서 종목 선택
