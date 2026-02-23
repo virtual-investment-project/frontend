@@ -4,7 +4,7 @@ import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { Alert, ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
+import { Alert, ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Stock, searchSymbols } from '../types/tradingview';
 import { toggleFavorite } from '../utils/favorites';
@@ -55,10 +55,18 @@ export default function InvestScreen() {
   const [portfolioSelectedAccount, setPortfolioSelectedAccount] = useState<Account | null>(null);
   const [portfolioHoldings, setPortfolioHoldings] = useState<StockHoldingResponse[]>([]);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [portfolioPendingBuyAmount, setPortfolioPendingBuyAmount] = useState(0); // 매수 예약금 (현금 동결)
+  const [accountsRefreshing, setAccountsRefreshing] = useState(false); // pull-to-refresh
 
   // 투자 비율 관련 상태
   const [investmentRatio, setInvestmentRatio] = useState(0); // 0 ~ 100%
   const [investmentAmount, setInvestmentAmount] = useState(0); // 투자 금액 (원화)
+
+  // 매도 시 보유 수량 (selectedAccount + selectedStock 조합)
+  const [sellableQuantity, setSellableQuantity] = useState(0);
+  // 포트폴리오 상세보기에서 직접 매도 시 사용
+  const [returnToPortfolio, setReturnToPortfolio] = useState(false); // 바텐시트 닫기/주문완료 후 포트폴리오로 복귀
+  const [accountLocked, setAccountLocked] = useState(false);        // 포트폴리오 매도 시 계좌 변경 불가
 
 
   // 계좌 정보 조회 - 화면 포커스 시마다 최신 계좌 목록 갱신
@@ -147,6 +155,69 @@ export default function InvestScreen() {
     fetchOrders();
   }, [fetchOrders]);
 
+  // 매도 몦어 좌: 계좌 또는 종목이 바뀌면 보유 수량 업데이트
+  useEffect(() => {
+    const fetchSellableQty = async () => {
+      if (!selectedAccount || !selectedStock || orderType !== 'sell') {
+        setSellableQuantity(0);
+        return;
+      }
+      try {
+        const holdings = await getAccountStocks(selectedAccount.id);
+        const stockCode = selectedStock.symbol.includes(':')
+          ? selectedStock.symbol.split(':')[1]
+          : selectedStock.symbol;
+        const holding = holdings.find(h => h.stockCode === stockCode);
+        setSellableQuantity(holding ? parseFloat(holding.quantity) : 0);
+      } catch {
+        setSellableQuantity(0);
+      }
+    };
+    fetchSellableQty();
+  }, [selectedAccount, selectedStock, orderType]);
+
+  // 포트폴리오 상세보기 - 5초마다 보유 종목 & 계좌 총자산 폴링
+  useEffect(() => {
+    if (!portfolioSelectedAccount) return;
+
+    const poll = async () => {
+      try {
+        // 보유 종목 현재가·수량 갱신
+        const holdings = await getAccountStocks(portfolioSelectedAccount.id);
+        setPortfolioHoldings(holdings);
+        // 매수 예약금 계산
+        const orders = await getOrdersByAccount(portfolioSelectedAccount.id);
+        const pendingBuy = orders
+          .filter(o => o.orderType === 'BUY' && o.status === 'PENDING')
+          .reduce((sum, o) => sum + parseFloat(o.totalAmount), 0);
+        setPortfolioPendingBuyAmount(pendingBuy);
+        // 계좌 업데이트
+        const updatedAccounts = await getAllMyAccounts();
+        setAccounts(updatedAccounts.map(acc => ({
+          id: acc.id,
+          accountName: acc.name,
+          balance: acc.balance,
+          totalAsset: acc.totalAsset,
+        })));
+        // portfolioSelectedAccount의 balance/totalAsset도 동기화
+        const updated = updatedAccounts.find(a => a.id === portfolioSelectedAccount.id);
+        if (updated) {
+          setPortfolioSelectedAccount({
+            id: updated.id,
+            accountName: updated.name,
+            balance: updated.balance,
+            totalAsset: updated.totalAsset,
+          });
+        }
+      } catch {
+        // 폴링 실패 시 무시 (화면 유지)
+      }
+    };
+
+    const intervalId = setInterval(poll, 5000); // 5초마다
+    return () => clearInterval(intervalId);    // 상세보기 닫히면 정리
+  }, [portfolioSelectedAccount?.id]);           // id 기준으로만 재등록
+
 
   const userBalance = 10000000; // 사용 가능 금액
 
@@ -201,8 +272,9 @@ export default function InvestScreen() {
       // 매수: 잔액 기반
       baseAmount = selectedAccount.balance;
     } else {
-      // 매도: 보유 수량 기반 (임시로 0으로 설정, 추후 포트폴리오 데이터 연동)
-      baseAmount = 0; // TODO: 실제 보유 수량 * 현재가
+      // 매도: 보유 수량 * 현재가 기반
+      const curPrice = parseFloat(orderPrice);
+      baseAmount = Math.floor(sellableQuantity * curPrice);
     }
 
     const amount = Math.floor((baseAmount * ratio) / 100);
@@ -242,7 +314,7 @@ export default function InvestScreen() {
       if (orderType === 'buy') {
         baseAmount = selectedAccount.balance;
       } else {
-        baseAmount = 0; // TODO: 실제 보유 수량 * 현재가
+        baseAmount = Math.floor(sellableQuantity * priceNum);
       }
 
       if (baseAmount > 0) {
@@ -254,7 +326,7 @@ export default function InvestScreen() {
 
   const calculateTotal = () => {
     const price = parseFloat(orderPrice) || 0;
-    const quantity = parseInt(orderQuantity) || 0;
+    const quantity = parseFloat(orderQuantity) || 0; // parseInt → parseFloat (소수점 수량 지원)
     return price * quantity;
   };
 
@@ -276,8 +348,8 @@ export default function InvestScreen() {
       return;
     }
 
-    const price = parseFloat(orderPrice);
-    const quantity = parseFloat(orderQuantity);
+    const price = parseFloat(parseFloat(orderPrice).toFixed(8));   // 8자리 반올림으로 부동소수점 오차 제거
+    const quantity = parseFloat(parseFloat(orderQuantity).toFixed(8)); // DB scale=8과 일치
     const totalAmount = price * quantity;
 
     if (orderType === 'buy' && totalAmount > selectedAccount.balance) {
@@ -307,7 +379,16 @@ export default function InvestScreen() {
       Alert.alert(
         '주문 완료',
         `${selectedStock.koreanName || selectedStock.name} ${quantity}주 ${orderType === 'buy' ? '매수' : '매도'} 주문이 접수되었습니다.`,
-        [{ text: '확인', onPress: () => resetOrderForm() }]
+        [{
+          text: '확인', onPress: () => {
+            resetOrderForm();
+            if (returnToPortfolio) {
+              setReturnToPortfolio(false);
+              setAccountLocked(false);
+              setSelectedStock(null);
+            }
+          }
+        }]
       );
     } catch (error: any) {
       console.error('주문 실패:', error);
@@ -319,6 +400,22 @@ export default function InvestScreen() {
   const resetOrderForm = () => {
     setOrderPrice('');
     setOrderQuantity('');
+    setInvestmentRatio(0);
+    setInvestmentAmount(0);
+  };
+
+  // 포트폴리오 상세보기에서 매도 바텐시트를 닫고 복귀
+  const handleCloseOrderPanel = () => {
+    if (returnToPortfolio) {
+      setReturnToPortfolio(false);
+      setAccountLocked(false);
+      resetOrderForm();
+      setSelectedStock(null);
+      // 포트폴리오 탭 유지 (상세보기 쪼던 상태는 portfolioSelectedAccount가 유지됨)
+    } else {
+      setSelectedStock(null);
+      resetOrderForm();
+    }
   };
 
   const handleSetCurrentPrice = () => {
@@ -509,7 +606,32 @@ export default function InvestScreen() {
             </Text>
           </View>
 
-          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={{ flex: 1 }}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={accountsRefreshing}
+                onRefresh={async () => {
+                  setAccountsRefreshing(true);
+                  try {
+                    const data = await getAllMyAccounts();
+                    setAccounts(data.map(acc => ({
+                      id: acc.id,
+                      accountName: acc.name,
+                      balance: acc.balance,
+                      totalAsset: acc.totalAsset,
+                    })));
+                  } catch (error) {
+                    console.error('계좌 새로고침 실패:', error);
+                  } finally {
+                    setAccountsRefreshing(false);
+                  }
+                }}
+                colors={['#6366F1']}
+                tintColor="#6366F1"
+              />
+            }>
             {accounts.map((account) => (
               <TouchableOpacity
                 key={account.id}
@@ -517,12 +639,20 @@ export default function InvestScreen() {
                 onPress={async () => {
                   setPortfolioSelectedAccount(account);
                   setPortfolioHoldings([]);
+                  setPortfolioPendingBuyAmount(0);
                   setPortfolioLoading(true);
                   try {
-                    const holdings = await getAccountStocks(account.id);
+                    const [holdings, orders] = await Promise.all([
+                      getAccountStocks(account.id),
+                      getOrdersByAccount(account.id),
+                    ]);
                     setPortfolioHoldings(holdings);
+                    const pendingBuy = orders
+                      .filter(o => o.orderType === 'BUY' && o.status === 'PENDING')
+                      .reduce((sum, o) => sum + parseFloat(o.totalAmount), 0);
+                    setPortfolioPendingBuyAmount(pendingBuy);
                   } catch (error) {
-                    console.error('보유 종목 조회 실패:', error);
+                    console.error('상세 조회 실패:', error);
                   } finally {
                     setPortfolioLoading(false);
                   }
@@ -553,14 +683,14 @@ export default function InvestScreen() {
       );
     }
 
-    // 선택된 계좌의 상세 정보 렌더링
-    // 보유 종목 합산 계산 (BigDecimal string 파싱)
+    // 백엔드 balance = 사용가능 현금 (예약금 이미 차감)
+    // 실제 업 = 사용가능현금 + 예약금 + 주식평가
     const totalStockValue = portfolioHoldings.reduce((sum, h) => {
       const price = parseFloat(h.currentPrice ?? h.averagePrice ?? '0');
       const qty = parseFloat(h.quantity);
       return sum + price * qty;
     }, 0);
-    const totalHoldingValue = portfolioSelectedAccount.balance + totalStockValue;
+    const totalHoldingValue = portfolioSelectedAccount.balance + portfolioPendingBuyAmount + totalStockValue;
 
     return (
       <View style={{ flex: 1 }}>
@@ -578,11 +708,26 @@ export default function InvestScreen() {
             <Text style={[styles.accountDetailName, { color: colors.text }]}>{portfolioSelectedAccount.accountName}</Text>
             <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 16 }]}>총 평가금액</Text>
             <Text style={[styles.totalValue, { color: colors.text }]}>
-              ₩{totalHoldingValue.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}
+              ${totalHoldingValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
+            {/* 현금 사용가능 */}
             <View style={styles.accountCardRow}>
-              <Text style={[styles.accountCardLabel, { color: colors.icon }]}>예수금 (현금)</Text>
-              <Text style={[styles.accountCardValue, { color: colors.text }]}>₩{portfolioSelectedAccount.balance.toLocaleString()}</Text>
+              <Text style={[styles.accountCardLabel, { color: colors.icon }]}>예수금 (사용가능)</Text>
+              <Text style={[styles.accountCardValue, { color: colors.text }]}>${portfolioSelectedAccount.balance.toLocaleString()}</Text>
+            </View>
+            {/* 매수 예약금 (있을 때만 표시) */}
+            {portfolioPendingBuyAmount > 0 && (
+              <View style={styles.accountCardRow}>
+                <Text style={[styles.accountCardLabel, { color: '#F59E0B' }]}>⏳ 매수 예약금</Text>
+                <Text style={[styles.accountCardValue, { color: '#F59E0B' }]}>
+                  ${portfolioPendingBuyAmount.toFixed(2)} (체결 시 주식 전환)
+                </Text>
+              </View>
+            )}
+            {/* 주식 평가액 */}
+            <View style={styles.accountCardRow}>
+              <Text style={[styles.accountCardLabel, { color: colors.icon }]}>보유주식 평가액</Text>
+              <Text style={[styles.accountCardValue, { color: colors.text }]}>${totalStockValue.toFixed(2)}</Text>
             </View>
           </View>
 
@@ -618,14 +763,22 @@ export default function InvestScreen() {
                     <TouchableOpacity
                       style={[styles.tradeButton, { backgroundColor: '#EF4444' }]}
                       onPress={() => {
+                        // 계좌 고정: portfolioSelectedAccount를 selectedAccount로 설정
+                        if (portfolioSelectedAccount) {
+                          setSelectedAccount(portfolioSelectedAccount);
+                        }
                         setSelectedStock({
                           symbol: item.stockCode,
                           name: item.stockName,
                           koreanName: item.stockName,
                           currentPrice: curPrice,
                         });
+                        // 현재가 자동 입력
+                        setOrderPrice(curPrice.toFixed(2));
                         setOrderType('sell');
-                        setActiveTab('search');
+                        setReturnToPortfolio(true);  // 전 탭 이동 대신 포트폴리오 복귀 모드
+                        setAccountLocked(true);      // 계좌 변경 불가
+                        // 탑 전환 없이 바텐시트만 표시 (selectedStock이 설정되면 렌더링 조건 충족)
                       }}>
                       <Text style={styles.tradeButtonText}>매도</Text>
                     </TouchableOpacity>
@@ -794,8 +947,8 @@ export default function InvestScreen() {
         {activeTab === 'orders' && renderOrdersTab()}
       </View>
 
-      {/* 주문 패널 (선택된 종목이 있을 때만 표시) */}
-      {selectedStock && activeTab === 'search' && (
+      {/* 주문 패널 (선택된 종목이 있을 때만 표시: 종목 검색 or 포트폴리오 매도) */}
+      {selectedStock && (activeTab === 'search' || returnToPortfolio) && (
         <View style={[styles.orderPanel, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
           <View style={styles.orderPanelHeader}>
             <View style={{ flex: 1 }}>
@@ -806,7 +959,7 @@ export default function InvestScreen() {
                 현재가: ${selectedStock.currentPrice?.toFixed(2) || '0.00'}
               </Text>
             </View>
-            <TouchableOpacity onPress={() => setSelectedStock(null)}>
+            <TouchableOpacity onPress={handleCloseOrderPanel}>
               <IconSymbol size={24} name="xmark.circle.fill" color={colors.icon} />
             </TouchableOpacity>
           </View>
@@ -840,8 +993,13 @@ export default function InvestScreen() {
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: colors.text }]}>계좌 선택</Text>
               <TouchableOpacity
-                style={[styles.accountSelector, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                onPress={() => setShowAccountPicker(true)}>
+                style={[
+                  styles.accountSelector,
+                  { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
+                  accountLocked && { opacity: 0.7 }, // 잠김 시 보이는 스타일
+                ]}
+                onPress={() => { if (!accountLocked) setShowAccountPicker(true); }}
+                activeOpacity={accountLocked ? 1 : 0.7}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.accountName, { color: selectedAccount ? colors.text : colors.icon }]}>
                     {selectedAccount?.accountName || '계좌를 선택하세요'}
@@ -874,7 +1032,7 @@ export default function InvestScreen() {
               <View style={styles.sliderHeader}>
                 <Text style={[styles.inputLabelInline, { color: colors.text }]}>투자 비율</Text>
                 <Text style={[styles.currentBalance, { color: colors.icon }]}>
-                  ({orderType === 'buy' ? '현재잔액' : '보유 수량'}: {orderType === 'buy' ? `₩${selectedAccount?.balance.toLocaleString() || '0'}` : '0'})
+                  ({orderType === 'buy' ? '현재잔액' : '보유수량'}: {orderType === 'buy' ? `$${selectedAccount?.balance.toLocaleString() || '0'}` : `${sellableQuantity}주`})
                 </Text>
               </View>
               <View style={styles.sliderContainer}>
@@ -910,7 +1068,7 @@ export default function InvestScreen() {
             <View style={[styles.totalContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
               <Text style={[styles.totalLabel, { color: colors.icon }]}>총 주문금액</Text>
               <Text style={[styles.totalAmount, { color: orderType === 'buy' ? '#10B981' : '#EF4444' }]}>
-                ₩{investmentAmount.toLocaleString()}
+                ${calculateTotal().toFixed(2)}
               </Text>
             </View>
 
