@@ -17,4 +17,5 @@ export type RootStackParamList = {
   CreateBattle: undefined;
   Modal: undefined;
   My: undefined;
+  Notifications: undefined;
 };
