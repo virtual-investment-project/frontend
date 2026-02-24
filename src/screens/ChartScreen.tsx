@@ -4,17 +4,17 @@ import { TradingViewChart } from '../components/TradingViewChart';
 import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { Stock, searchSymbols } from '../types/tradingview';
-import { toggleFavorite } from '../utils/favorites';
+import { toggleFavorite } from '../services/favoriteService';
 import { useFavoritesContext } from '../contexts/FavoritesContext';
 import { useCallback, useEffect, useState } from 'react';
-import { 
-  ScrollView, 
-  StyleSheet, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
   View,
-  Alert 
+  Alert
 } from 'react-native';
 
 export default function ChartScreen() {
@@ -43,7 +43,7 @@ export default function ChartScreen() {
   const handleToggleFavorite = async (stock: Stock) => {
     const newIsFavorite = await toggleFavorite(stock.symbol, stock.name, stock.koreanName);
     await refreshFavorites();
-    
+
     // 현재 선택된 종목이면 상태 업데이트
     if (selectedStock?.symbol === stock.symbol) {
       setSelectedStock({ ...stock, isFavorite: newIsFavorite });
@@ -102,7 +102,7 @@ export default function ChartScreen() {
   // 검색 결과 렌더링
   const renderSearchResult = (stock: Stock) => {
     const isFav = favorites.some(fav => fav.symbol === stock.symbol);
-    
+
     return (
       <TouchableOpacity
         key={stock.symbol}
@@ -124,10 +124,10 @@ export default function ChartScreen() {
         <TouchableOpacity
           onPress={() => handleToggleFavorite(stock)}
           style={styles.favoriteButton}>
-          <IconSymbol 
-            size={22} 
-            name={isFav ? "star.fill" : "star"} 
-            color={isFav ? "#FCD34D" : colors.icon} 
+          <IconSymbol
+            size={22}
+            name={isFav ? "star.fill" : "star"}
+            color={isFav ? "#FCD34D" : colors.icon}
           />
         </TouchableOpacity>
       </TouchableOpacity>
@@ -188,10 +188,10 @@ export default function ChartScreen() {
             <TouchableOpacity
               onPress={() => handleToggleFavorite(selectedStock)}
               style={styles.favoriteButtonLarge}>
-              <IconSymbol 
-                size={28} 
-                name={selectedStock.isFavorite ? "star.fill" : "star"} 
-                color={selectedStock.isFavorite ? "#FCD34D" : colors.icon} 
+              <IconSymbol
+                size={28}
+                name={selectedStock.isFavorite ? "star.fill" : "star"}
+                color={selectedStock.isFavorite ? "#FCD34D" : colors.icon}
               />
             </TouchableOpacity>
           </View>
@@ -199,8 +199,8 @@ export default function ChartScreen() {
 
         {/* TradingView 차트 */}
         <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF', padding: 0, overflow: 'hidden' }]}>
-          <TradingViewChart 
-            symbol={selectedStock.symbol} 
+          <TradingViewChart
+            symbol={selectedStock.symbol}
             height={400}
           />
         </View>
@@ -225,17 +225,17 @@ export default function ChartScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-      <ScrollView 
-        style={styles.scrollContent} 
+      <ScrollView
+        style={styles.scrollContent}
         contentContainerStyle={styles.scrollContentContainer}
         keyboardShouldPersistTaps="handled">
-        
+
         {/* 헤더 */}
         <View style={styles.header}>
           <ThemedText type="title" style={styles.title}>차트</ThemedText>
           <Text style={[styles.subtitle, { color: colors.icon }]}>
-            {selectedStock 
-              ? `${selectedStock.koreanName || selectedStock.name} 차트 분석` 
+            {selectedStock
+              ? `${selectedStock.koreanName || selectedStock.name} 차트 분석`
               : '종목을 검색하거나 즐겨찾기에서 선택하세요'}
           </Text>
         </View>

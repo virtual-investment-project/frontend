@@ -7,7 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Alert, ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Stock, searchSymbols } from '../types/tradingview';
-import { toggleFavorite } from '../utils/favorites';
+import { toggleFavorite } from '../services/favoriteService';
 import { useFavoritesContext, FavoriteWithPrice } from '../contexts/FavoritesContext';
 import { Account } from '../types/account';
 import { getAllMyAccounts, getAccountStocks } from '../services/accountService';
