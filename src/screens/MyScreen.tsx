@@ -15,6 +15,7 @@ import { GOOGLE_WEB_CLIENT_ID } from '@env';
 import { getPersonalAccount, createPersonalAccount, getPersonalStocks, getPersonalTransactions, getPendingOrders, getPersonalBattleProfits } from '../services/accountService';
 import { AccountResponse, StockHoldingResponse, TransactionResponse, PendingOrderResponse, BattleProfitResponse } from '../types/api';
 import { useTheme } from '../contexts/ThemeContext';
+import { getSettings, updateSettings } from '../services/settingsService';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -66,9 +67,6 @@ export default function MyScreen() {
     orderExecution: true,
     battleStart: true,
     rankChange: true,
-    profitRate: true,
-    pushNotification: true,
-    dailySummary: false,
     stockPriceAlert: false,
   });
 
@@ -85,12 +83,43 @@ export default function MyScreen() {
     fetchUserProfile();
   }, []);
 
-  // 탭 변경 시 계좌 정보 로드
+  // 탭 변경 시 데이터 로드
   useEffect(() => {
     if (activeTab === 'account') {
       fetchPersonalAccount();
     }
+    if (activeTab === 'settings') {
+      loadNotificationSettings();
+    }
   }, [activeTab]);
+
+  // 알림 설정 로드
+  const loadNotificationSettings = async () => {
+    try {
+      const settings = await getSettings();
+      setNotificationSettings({
+        orderExecution: settings.orderExecution,
+        battleStart: settings.battleStart,
+        rankChange: settings.rankChange,
+        stockPriceAlert: settings.stockPriceAlert,
+      });
+    } catch (error) {
+      console.error('알림 설정 로드 실패:', error);
+    }
+  };
+
+  // 알림 설정 토글
+  const handleToggleNotification = async (key: keyof typeof notificationSettings) => {
+    const newValue = !notificationSettings[key];
+    setNotificationSettings({ ...notificationSettings, [key]: newValue });
+    try {
+      await updateSettings({ [key]: newValue });
+    } catch (error) {
+      console.error('알림 설정 변경 실패:', error);
+      setNotificationSettings({ ...notificationSettings, [key]: !newValue });
+      Alert.alert('오류', '알림 설정 변경에 실패했습니다.');
+    }
+  };
 
   const fetchUserProfile = async () => {
     try {
@@ -627,7 +656,7 @@ export default function MyScreen() {
           <Text style={[styles.settingLabel, { color: colors.text }]}>주문 체결 알림</Text>
           <TouchableOpacity
             style={[styles.toggle, notificationSettings.orderExecution && { backgroundColor: '#6366F1' }]}
-            onPress={() => setNotificationSettings({ ...notificationSettings, orderExecution: !notificationSettings.orderExecution })}>
+            onPress={() => handleToggleNotification('orderExecution')}>
             <View style={[styles.toggleThumb, notificationSettings.orderExecution && styles.toggleThumbActive]} />
           </TouchableOpacity>
         </View>
@@ -636,7 +665,7 @@ export default function MyScreen() {
           <Text style={[styles.settingLabel, { color: colors.text }]}>팀전 시작 알림</Text>
           <TouchableOpacity
             style={[styles.toggle, notificationSettings.battleStart && { backgroundColor: '#6366F1' }]}
-            onPress={() => setNotificationSettings({ ...notificationSettings, battleStart: !notificationSettings.battleStart })}>
+            onPress={() => handleToggleNotification('battleStart')}>
             <View style={[styles.toggleThumb, notificationSettings.battleStart && styles.toggleThumbActive]} />
           </TouchableOpacity>
         </View>
@@ -645,35 +674,8 @@ export default function MyScreen() {
           <Text style={[styles.settingLabel, { color: colors.text }]}>순위 변동 알림</Text>
           <TouchableOpacity
             style={[styles.toggle, notificationSettings.rankChange && { backgroundColor: '#6366F1' }]}
-            onPress={() => setNotificationSettings({ ...notificationSettings, rankChange: !notificationSettings.rankChange })}>
+            onPress={() => handleToggleNotification('rankChange')}>
             <View style={[styles.toggleThumb, notificationSettings.rankChange && styles.toggleThumbActive]} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.settingItem}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>수익률 도달 알림</Text>
-          <TouchableOpacity
-            style={[styles.toggle, notificationSettings.profitRate && { backgroundColor: '#6366F1' }]}
-            onPress={() => setNotificationSettings({ ...notificationSettings, profitRate: !notificationSettings.profitRate })}>
-            <View style={[styles.toggleThumb, notificationSettings.profitRate && styles.toggleThumbActive]} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.settingItem}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>푸시 알림</Text>
-          <TouchableOpacity
-            style={[styles.toggle, notificationSettings.pushNotification && { backgroundColor: '#6366F1' }]}
-            onPress={() => setNotificationSettings({ ...notificationSettings, pushNotification: !notificationSettings.pushNotification })}>
-            <View style={[styles.toggleThumb, notificationSettings.pushNotification && styles.toggleThumbActive]} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.settingItem}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>일일 요약 알림</Text>
-          <TouchableOpacity
-            style={[styles.toggle, notificationSettings.dailySummary && { backgroundColor: '#6366F1' }]}
-            onPress={() => setNotificationSettings({ ...notificationSettings, dailySummary: !notificationSettings.dailySummary })}>
-            <View style={[styles.toggleThumb, notificationSettings.dailySummary && styles.toggleThumbActive]} />
           </TouchableOpacity>
         </View>
 
@@ -681,17 +683,10 @@ export default function MyScreen() {
           <Text style={[styles.settingLabel, { color: colors.text }]}>관심 종목 가격 알림</Text>
           <TouchableOpacity
             style={[styles.toggle, notificationSettings.stockPriceAlert && { backgroundColor: '#6366F1' }]}
-            onPress={() => setNotificationSettings({ ...notificationSettings, stockPriceAlert: !notificationSettings.stockPriceAlert })}>
+            onPress={() => handleToggleNotification('stockPriceAlert')}>
             <View style={[styles.toggleThumb, notificationSettings.stockPriceAlert && styles.toggleThumbActive]} />
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity
-          style={styles.settingItemLink}
-          onPress={() => Alert.alert('방해 금지 시간', '시간대 설정 기능은 추후 구현 예정입니다.')}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>방해 금지 시간</Text>
-          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
-        </TouchableOpacity>
       </View>
 
       {/* UI/환경 설정 */}

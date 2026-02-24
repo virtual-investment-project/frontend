@@ -2,10 +2,20 @@ import axiosInstance from '../api/axiosInstance';
 
 export interface SettingsResponse {
     darkMode: boolean;
+    // 알림 설정
+    orderExecution: boolean;
+    battleStart: boolean;
+    rankChange: boolean;
+    stockPriceAlert: boolean;
 }
 
 export interface SettingsUpdateRequest {
     darkMode?: boolean;
+    // 알림 설정
+    orderExecution?: boolean;
+    battleStart?: boolean;
+    rankChange?: boolean;
+    stockPriceAlert?: boolean;
 }
 
 export const getSettings = async (): Promise<SettingsResponse> => {
