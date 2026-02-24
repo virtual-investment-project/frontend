@@ -13,6 +13,7 @@ import AdditionalInfoScreen from '../screens/AdditionalInfoScreen';
 import BattleDetailScreen from '../screens/BattleDetailScreen';
 import CreateBattleScreen from '../screens/CreateBattleScreen';
 import MyScreen from '../screens/MyScreen';
+import NotificationScreen from '../screens/NotificationScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -28,6 +29,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="BattleDetail" component={BattleDetailScreen} />
                 <Stack.Screen name="CreateBattle" component={CreateBattleScreen} />
                 <Stack.Screen name="My" component={MyScreen} />
+                <Stack.Screen name="Notifications" component={NotificationScreen} />
             </Stack.Navigator>
         </NavigationContainer>
     );

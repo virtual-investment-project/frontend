@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getFavorites, FavoriteSymbol } from '../utils/favorites';
+import { getFavorites, FavoriteStockItem } from '../services/favoriteService';
+import { getAccessToken } from '../utils/tokenStorage';
 
-export interface FavoriteWithPrice extends FavoriteSymbol {
+export interface FavoriteWithPrice extends FavoriteStockItem {
   currentPrice: number;
   change: number;
   changePercent: number;
@@ -20,18 +21,15 @@ const fetchCryptoPrice = async (symbol: string): Promise<{
   changePercent: number;
 } | null> => {
   try {
-    // BINANCE:BTCUSDT 형식에서 BTCUSDT 추출
     const cleanSymbol = symbol.includes(':') ? symbol.split(':')[1] : symbol;
-    
-    // Binance API를 통한 24시간 가격 변동 정보 가져오기
     const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${cleanSymbol}`);
-    
+
     if (!response.ok) {
       throw new Error('Failed to fetch crypto price');
     }
-    
+
     const data = await response.json();
-    
+
     return {
       currentPrice: parseFloat(data.lastPrice),
       change: parseFloat(data.priceChange),
@@ -60,13 +58,11 @@ const fetchPriceInfo = async (symbol: string): Promise<{
   changePercent: number;
   marketCap: string;
 } | null> => {
-  // 암호화폐(BINANCE:)만 처리
   if (!symbol.includes('BINANCE:')) {
     console.warn(`Skipping non-crypto symbol: ${symbol}`);
     return null;
   }
-  
-  // 암호화폐 가격 정보 가져오기
+
   const cryptoPrice = await fetchCryptoPrice(symbol);
   if (cryptoPrice) {
     return {
@@ -74,8 +70,7 @@ const fetchPriceInfo = async (symbol: string): Promise<{
       marketCap: estimateMarketCap(cryptoPrice.currentPrice, symbol),
     };
   }
-  
-  // 기본값 (가격 정보를 가져오지 못한 경우)
+
   return null;
 };
 
@@ -85,34 +80,46 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [favorites, setFavorites] = useState<FavoriteWithPrice[]>([]);
 
   const refreshFavorites = useCallback(async () => {
-    const favs = await getFavorites();
-    
-    // 각 즐겨찾기에 실시간 가격 정보 추가 (암호화폐만)
-    const favsWithPricePromises = favs.map(async (fav) => {
-      const priceInfo = await fetchPriceInfo(fav.symbol);
-      if (priceInfo) {
-        return {
-          ...fav,
-          ...priceInfo,
-        };
+    try {
+      // 로그인 여부 확인 (비로그인 시 빈 배열)
+      const token = await getAccessToken();
+      if (!token) {
+        setFavorites([]);
+        return;
       }
-      return null;
-    });
-    
-    const results = await Promise.all(favsWithPricePromises);
-    const favsWithPrice = results.filter((item): item is FavoriteWithPrice => item !== null);
-    
-    setFavorites(favsWithPrice);
+
+      const favs = await getFavorites();
+
+      // 각 즐겨찾기에 실시간 가격 정보 추가
+      const favsWithPricePromises = favs.map(async (fav) => {
+        const priceInfo = await fetchPriceInfo(fav.symbol);
+        if (priceInfo) {
+          return {
+            ...fav,
+            ...priceInfo,
+          };
+        }
+        return null;
+      });
+
+      const results = await Promise.all(favsWithPricePromises);
+      const favsWithPrice = results.filter((item): item is FavoriteWithPrice => item !== null);
+
+      setFavorites(favsWithPrice);
+    } catch (error) {
+      console.error('즐겨찾기 로드 실패:', error);
+      setFavorites([]);
+    }
   }, []);
 
   useEffect(() => {
     refreshFavorites();
-    
-    // 30초마다 가격 정보 업데이트
+
+    // 1초마다 가격 정보 업데이트
     const interval = setInterval(() => {
       refreshFavorites();
     }, 1000);
-    
+
     return () => clearInterval(interval);
   }, [refreshFavorites]);
 

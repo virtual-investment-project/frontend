@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { ThemedText } from '../components/ThemedText';
 import { IconSymbol } from '../components/ui/IconSymbol';
 import { Colors } from '../constants/theme';
@@ -20,6 +21,7 @@ import { getAllBattles } from '../services/battleService';
 import { getTeamsByBattleId, getTeamMembers } from '../services/teamService';
 import { BattleListResponse, TeamMemberResponse } from '../types/api';
 import { getAccessToken } from '../utils/tokenStorage';
+import { getUnreadCount } from '../services/notificationService';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -43,6 +45,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // 배틀 데이터 로드
   const loadData = useCallback(async () => {
@@ -52,17 +55,17 @@ export default function HomeScreen() {
 
       // 개인 계좌 수익률 TOP 3 추출
       const allMembers: AccountRankingItem[] = [];
-      
+
       for (const battle of battlesData) {
         if (battle.status !== 'PROGRESS') continue; // 진행중인 배틀만
-        
+
         try {
           const teams = await getTeamsByBattleId(battle.id);
-          
+
           for (const team of teams) {
             try {
               const members = await getTeamMembers(team.id);
-              
+
               members.forEach((member: TeamMemberResponse) => {
                 allMembers.push({
                   rank: 0,
@@ -120,6 +123,24 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [loadData, checkLoginStatus]);
 
+  // 알림 화면에서 돌아올 때 unread 수 갱신
+  useFocusEffect(
+    useCallback(() => {
+      const fetchUnread = async () => {
+        try {
+          const token = await getAccessToken();
+          if (token) {
+            const count = await getUnreadCount();
+            setUnreadNotifications(count);
+          }
+        } catch (error) {
+          console.error('안 읽은 알림 수 조회 실패:', error);
+        }
+      };
+      fetchUnread();
+    }, []),
+  );
+
   // 진행중인 배틀만 필터링 (최대 3개)
   const activeBattles = battles
     .filter((b) => b.status === 'PROGRESS')
@@ -167,9 +188,25 @@ export default function HomeScreen() {
       <View style={[styles.header, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
         <View style={styles.headerRow}>
           <ThemedText style={[styles.logo, { color: colors.tint }]}>💎 InvestBattle</ThemedText>
-          <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
-            <IconSymbol size={28} name="person.circle.fill" color={colors.tint} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            {isLoggedIn && (
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Notifications')}
+                style={styles.bellButton}>
+                <IconSymbol size={26} name="bell.fill" color={colors.tint} />
+                {unreadNotifications > 0 && (
+                  <View style={styles.badge}>
+                    <ThemedText style={styles.badgeText}>
+                      {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                    </ThemedText>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+              <IconSymbol size={28} name="person.circle.fill" color={colors.tint} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -575,5 +612,32 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 20,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  bellButton: {
+    padding: 4,
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 14,
   },
 });
