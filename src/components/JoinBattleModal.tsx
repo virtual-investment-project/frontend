@@ -24,7 +24,7 @@ interface JoinBattleModalProps {
     teams: TeamResponse[];
 }
 
-type TabType = 'select' | 'invite' | 'create';
+type TabType = 'select' | 'create';
 
 const TEAM_COLORS = ['#10B981', '#EF4444', '#6366F1', '#F59E0B', '#8B5CF6', '#EC4899'];
 
@@ -41,15 +41,17 @@ export default function JoinBattleModal({
     const [activeTab, setActiveTab] = useState<TabType>('select');
     const [loading, setLoading] = useState(false);
 
-    // 초대 코드 참가
-    const [inviteCode, setInviteCode] = useState('');
+    // 팀 선택 후 초대 코드 입력
+    const [selectedTeam, setSelectedTeam] = useState<TeamResponse | null>(null);
+    const [selectInviteCode, setSelectInviteCode] = useState('');
 
     // 팀 생성
     const [newTeamName, setNewTeamName] = useState('');
     const [newTeamDescription, setNewTeamDescription] = useState('');
 
     const resetForm = () => {
-        setInviteCode('');
+        setSelectedTeam(null);
+        setSelectInviteCode('');
         setNewTeamName('');
         setNewTeamDescription('');
         setActiveTab('select');
@@ -60,37 +62,22 @@ export default function JoinBattleModal({
         onClose();
     };
 
-    // 기존 팀 선택하여 참가
-    const handleSelectTeam = async (team: TeamResponse) => {
-        try {
-            setLoading(true);
-            await joinTeam({ inviteCode: team.inviteCode });
-            Alert.alert('참가 완료', `${team.name}에 참가했습니다!`, [
-                { text: '확인', onPress: () => { handleClose(); onSuccess(); } }
-            ]);
-        } catch (err: any) {
-            console.error('팀 참가 오류:', err);
-            Alert.alert('오류', err.response?.data?.message || '팀 참가에 실패했습니다.');
-        } finally {
-            setLoading(false);
+    // 팀 선택 후 초대 코드로 참가
+    const handleJoinSelectedTeam = async () => {
+        const code = selectInviteCode.trim();
+        if (!selectedTeam) {
+            Alert.alert('오류', '참가할 팀을 선택해주세요.');
+            return;
         }
-    };
-
-    // 초대 코드로 참가
-    const handleJoinWithCode = async () => {
-        const code = inviteCode.trim();
         if (!code) {
             Alert.alert('오류', '초대 코드를 입력해주세요.');
             return;
         }
-
-        // UUID 형식 검증 (8-4-4-4-12)
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(code)) {
-            Alert.alert('오류', '올바른 초대 코드 형식이 아닙니다. (예: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)');
+            Alert.alert('오류', '올바른 초대 코드 형식이 아닙니다.\n(예: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)');
             return;
         }
-
         try {
             setLoading(true);
             const team = await joinTeam({ inviteCode: code });
@@ -98,12 +85,8 @@ export default function JoinBattleModal({
                 { text: '확인', onPress: () => { handleClose(); onSuccess(); } }
             ]);
         } catch (err: any) {
-            console.error('초대 코드 참가 오류:', err);
-            console.error('에러 상세:', {
-                status: err.response?.status,
-                data: JSON.stringify(err.response?.data),
-            });
-            let errorMessage = '유효하지 않은 초대 코드입니다.';
+            console.error('팀 참가 오류:', err);
+            let errorMessage = '팀 참가에 실패했습니다.';
             if (err.response?.status === 403) {
                 errorMessage = err.response?.data?.message || '이미 이 배틀에서 팀에 가입되어 있거나, 참가가 제한되었습니다.';
             } else if (err.response?.data?.message) {
@@ -168,76 +151,98 @@ export default function JoinBattleModal({
                                 </Text>
                             </View>
                         ) : (
-                            teams.map((team, index) => {
-                                const teamColor = TEAM_COLORS[index % TEAM_COLORS.length];
-                                return (
-                                    <TouchableOpacity
-                                        key={team.id}
-                                        style={[
-                                            styles.teamCard,
-                                            { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }
-                                        ]}
-                                        onPress={() => handleSelectTeam(team)}
-                                        disabled={loading}
-                                    >
-                                        <View style={styles.teamCardContent}>
-                                            <View style={[styles.teamColorDot, { backgroundColor: teamColor }]} />
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={[styles.teamCardName, { color: colors.text }]}>
-                                                    {team.name}
-                                                </Text>
-                                                <Text style={[styles.teamCardMeta, { color: colors.icon }]}>
-                                                    {team.memberCount}명 참가중 • 수익률 {team.rate >= 0 ? '+' : ''}{team.rate.toFixed(1)}%
-                                                </Text>
-                                                {team.description && (
-                                                    <Text style={[styles.teamCardDescription, { color: colors.icon }]} numberOfLines={1}>
-                                                        {team.description}
+                            <>
+                                <Text style={[styles.inputLabel, { color: colors.text, marginBottom: 12 }]}>
+                                    참가할 팀 선택
+                                </Text>
+                                {teams.map((team, index) => {
+                                    const teamColor = TEAM_COLORS[index % TEAM_COLORS.length];
+                                    const isSelected = selectedTeam?.id === team.id;
+                                    return (
+                                        <TouchableOpacity
+                                            key={team.id}
+                                            style={[
+                                                styles.teamCard,
+                                                {
+                                                    backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC',
+                                                    borderWidth: 2,
+                                                    borderColor: isSelected ? '#6366F1' : 'transparent',
+                                                }
+                                            ]}
+                                            onPress={() => {
+                                                setSelectedTeam(isSelected ? null : team);
+                                                setSelectInviteCode('');
+                                            }}
+                                            disabled={loading}
+                                        >
+                                            <View style={styles.teamCardContent}>
+                                                <View style={[styles.teamColorDot, { backgroundColor: teamColor }]} />
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={[styles.teamCardName, { color: colors.text }]}>
+                                                        {team.name}
                                                     </Text>
-                                                )}
+                                                    <Text style={[styles.teamCardMeta, { color: colors.icon }]}>
+                                                        {team.memberCount}명 참가중
+                                                        {team.rate !== 0 && ` • 수익률 ${team.rate >= 0 ? '+' : ''}${team.rate.toFixed(1)}%`}
+                                                    </Text>
+                                                    {team.description && (
+                                                        <Text style={[styles.teamCardDescription, { color: colors.icon }]} numberOfLines={1}>
+                                                            {team.description}
+                                                        </Text>
+                                                    )}
+                                                </View>
+                                                <IconSymbol
+                                                    size={20}
+                                                    name={isSelected ? 'checkmark.circle.fill' : 'circle'}
+                                                    color={isSelected ? '#6366F1' : colors.icon}
+                                                />
                                             </View>
-                                            <IconSymbol size={20} name="chevron.right" color={colors.icon} />
-                                        </View>
-                                    </TouchableOpacity>
-                                );
-                            })
+                                        </TouchableOpacity>
+                                    );
+                                })}
+
+                                {selectedTeam && (
+                                    <>
+                                        <Text style={[styles.inputLabel, { color: colors.text, marginTop: 20, marginBottom: 8 }]}>
+                                            {selectedTeam.name} 초대 코드
+                                        </Text>
+                                        <TextInput
+                                            style={[
+                                                styles.input,
+                                                {
+                                                    backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC',
+                                                    color: colors.text,
+                                                    borderWidth: 1,
+                                                    borderColor: '#6366F1',
+                                                }
+                                            ]}
+                                            placeholder="팀 리더에게 받은 초대 코드 입력"
+                                            placeholderTextColor={colors.icon}
+                                            value={selectInviteCode}
+                                            onChangeText={setSelectInviteCode}
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            editable={!loading}
+                                        />
+                                        <Text style={[styles.helperText, { color: colors.icon }]}>
+                                            UUID 형식 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+                                        </Text>
+                                        <TouchableOpacity
+                                            style={[styles.submitButton, { backgroundColor: '#6366F1', opacity: loading ? 0.6 : 1 }]}
+                                            onPress={handleJoinSelectedTeam}
+                                            disabled={loading}
+                                        >
+                                            {loading ? (
+                                                <ActivityIndicator size="small" color="#FFFFFF" />
+                                            ) : (
+                                                <Text style={styles.submitButtonText}>참가하기</Text>
+                                            )}
+                                        </TouchableOpacity>
+                                    </>
+                                )}
+                            </>
                         )}
                     </ScrollView>
-                );
-
-            case 'invite':
-                return (
-                    <View style={styles.tabContent}>
-                        <Text style={[styles.inputLabel, { color: colors.text }]}>초대 코드</Text>
-                        <TextInput
-                            style={[
-                                styles.input,
-                                {
-                                    backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC',
-                                    color: colors.text,
-                                }
-                            ]}
-                            placeholder="초대 코드를 입력하세요"
-                            placeholderTextColor={colors.icon}
-                            value={inviteCode}
-                            onChangeText={setInviteCode}
-                            autoCapitalize="none"
-                            editable={!loading}
-                        />
-                        <Text style={[styles.helperText, { color: colors.icon }]}>
-                            팀 리더에게 받은 초대 코드(UUID 형식)를 입력해주세요.
-                        </Text>
-                        <TouchableOpacity
-                            style={[styles.submitButton, { backgroundColor: '#6366F1', opacity: loading ? 0.6 : 1 }]}
-                            onPress={handleJoinWithCode}
-                            disabled={loading}
-                        >
-                            {loading ? (
-                                <ActivityIndicator size="small" color="#FFFFFF" />
-                            ) : (
-                                <Text style={styles.submitButtonText}>참가하기</Text>
-                            )}
-                        </TouchableOpacity>
-                    </View>
                 );
 
             case 'create':
@@ -322,16 +327,7 @@ export default function JoinBattleModal({
                             disabled={loading}
                         >
                             <Text style={[styles.tabText, { color: activeTab === 'select' ? '#6366F1' : colors.icon }]}>
-                                팀 선택
-                            </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.tab, activeTab === 'invite' && styles.activeTab]}
-                            onPress={() => setActiveTab('invite')}
-                            disabled={loading}
-                        >
-                            <Text style={[styles.tabText, { color: activeTab === 'invite' ? '#6366F1' : colors.icon }]}>
-                                초대 코드
+                                초대 코드 입력
                             </Text>
                         </TouchableOpacity>
                         <TouchableOpacity

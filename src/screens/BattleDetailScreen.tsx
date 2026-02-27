@@ -6,25 +6,17 @@ import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navig
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useState, useCallback } from 'react';
-import { getBattleById } from '../services/battleService';
+import { getBattleById, getBattleTeamProfits, getBattleAccountProfits } from '../services/battleService';
 import { getTeamsByBattleId, getTeamMembers } from '../services/teamService';
-import { getCommentsByBattleId, createComment } from '../services/commentService';
-import { getBattleAccount } from '../services/accountService';
-import { BattleResponse, BattleStatus, TeamResponse, TeamMemberResponse, CommentResponse } from '../types/api';
+import { getCommentsByBattleId, createComment, deleteComment } from '../services/commentService';
+import { getBattleAccount, getPersonalAccountProfit, getBattleAccountProfit } from '../services/accountService';
+import { getRole } from '../utils/tokenStorage';
+import { BattleResponse, BattleStatus, TeamResponse, TeamMemberResponse, TeamProfitResponse, CommentResponse, AccountProfitResponse } from '../types/api';
 import JoinBattleModal from '../components/JoinBattleModal';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type BattleDetailRouteProp = RouteProp<RootStackParamList, 'BattleDetail'>;
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
-
-interface Stock {
-  symbol: string;
-  name: string;
-  currentPrice: number;
-  change: number;
-  changePercent: number;
-  delayMinutes: number;
-}
 
 // 팀 색상 배열
 const TEAM_COLORS = ['#10B981', '#EF4444', '#6366F1', '#F59E0B', '#8B5CF6', '#EC4899'];
@@ -74,12 +66,55 @@ export default function BattleDetailScreen() {
   const [comments, setComments] = useState<CommentResponse[]>([]);
   const [teams, setTeams] = useState<TeamResponse[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ [teamId: number]: TeamMemberResponse[] }>({});
+  const [teamProfits, setTeamProfits] = useState<TeamProfitResponse[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
   const [postingComment, setPostingComment] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [isParticipating, setIsParticipating] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: number; nickname: string } | null>(null);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState<string | null>(null);
+
+  // 내 정보 로드 (JWT 인증 확인 → 개인계좌 API로 실제 userId(UUID) 가져오기)
+  const fetchMyInfo = useCallback(async () => {
+    console.log('[AUTH] fetchMyInfo 시작');
+
+    // Step 1: JWT에서 role만 추출 (userId는 API에서 가져옴)
+    try {
+      const role = await getRole();
+      setMyRole(role);
+      console.log('[AUTH] JWT에서 role 추출:', role);
+    } catch (e) {
+      console.warn('[AUTH] JWT role 추출 실패:', e);
+    }
+
+    // Step 2: API로 실제 userId(UUID) 가져오기
+    try {
+      console.log('[AUTH] 개인 계좌 API로 userId(UUID) 조회 시도');
+      const profit = await getPersonalAccountProfit();
+      console.log('[AUTH] 개인 계좌 조회 성공, userId(UUID):', profit.userId);
+      setMyUserId(profit.userId);
+      return;
+    } catch (e) {
+      console.warn('[AUTH] 개인 계좌 API 실패:', e);
+      // 배틀 계좌로 시도 (참여 중인 배틀이 있다면)
+      if (id) {
+        try {
+          console.log('[AUTH] 배틀 계좌 API로 userId 조회 시도');
+          const battleProfit = await getBattleAccountProfit(id);
+          console.log('[AUTH] 배틀 계좌 조회 성공, userId(UUID):', battleProfit.userId);
+          setMyUserId(battleProfit.userId);
+          return;
+        } catch (e2) {
+          console.warn('[AUTH] 배틀 계좌 API 실패:', e2);
+        }
+      }
+    }
+
+    console.warn('[AUTH] 모든 userId 조회 방법 실패');
+    setMyUserId(null);
+  }, [id]);
 
   // 배틀 상세 조회
   const fetchBattleDetail = useCallback(async () => {
@@ -100,20 +135,105 @@ export default function BattleDetailScreen() {
   const fetchTeams = useCallback(async () => {
     try {
       setLoadingTeams(true);
-      const teamsData = await getTeamsByBattleId(id);
-      setTeams(teamsData);
 
-      // 각 팀의 멤버 조회
-      const membersMap: { [teamId: number]: TeamMemberResponse[] } = {};
-      for (const team of teamsData) {
-        try {
-          const members = await getTeamMembers(team.id);
-          membersMap[team.id] = members;
-        } catch (err) {
-          console.error(`팀 ${team.id} 멤버 조회 오류:`, err);
-          membersMap[team.id] = [];
+      // 팀 메타 + 수익률 병렬 조회
+      const [teamsData, teamProfitsData, accountProfitsData] = await Promise.all([
+        getTeamsByBattleId(id),
+        getBattleTeamProfits(id).catch((err) => {
+          console.error('팀 수익률 조회 오류:', err);
+          return null;
+        }),
+        getBattleAccountProfits(id).catch((err) => {
+          console.error('개인 수익률 조회 오류:', err);
+          return [] as AccountProfitResponse[];
+        }),
+      ]);
+
+      const normalizeMembers = (members: AccountProfitResponse[] | undefined): AccountProfitResponse[] => {
+        return Array.isArray(members) ? members : [];
+      };
+
+      const toTeamProfitMapFromAccounts = (accounts: AccountProfitResponse[]): TeamProfitResponse[] => {
+        const byTeam = new Map<number, AccountProfitResponse[]>();
+
+        accounts.forEach((account) => {
+          if (account.teamId == null) return;
+          const teamIdNum = Number(account.teamId);
+          if (!Number.isFinite(teamIdNum)) return;
+
+          const list = byTeam.get(teamIdNum) ?? [];
+          list.push(account);
+          byTeam.set(teamIdNum, list);
+        });
+
+        const aggregated = Array.from(byTeam.entries()).map(([teamIdNum, members]) => {
+          const totalSeedMoney = members.reduce((sum, m) => sum + (m.seedMoney ?? 0), 0);
+          const totalAsset = members.reduce((sum, m) => sum + (m.totalAsset ?? 0), 0);
+          const returnAmount = members.reduce((sum, m) => sum + (m.returnAmount ?? 0), 0);
+          const returnRate = totalSeedMoney > 0 ? (returnAmount / totalSeedMoney) * 100 : 0;
+          const teamMeta = teamsData.find((team) => team.id === teamIdNum);
+
+          return {
+            teamId: teamIdNum,
+            teamName: teamMeta?.name ?? members[0]?.teamName ?? `팀 ${teamIdNum}`,
+            battleId: id,
+            totalSeedMoney,
+            totalAsset,
+            returnAmount,
+            returnRate,
+            memberCount: members.length,
+            rank: 0,
+            members,
+          } as TeamProfitResponse;
+        });
+
+        aggregated.sort((a, b) => b.returnRate - a.returnRate);
+        return aggregated.map((item, index) => ({ ...item, rank: index + 1 }));
+      };
+
+      const normalizedTeamProfits = (teamProfitsData ?? []).map((profit) => ({
+        ...profit,
+        teamId: Number(profit.teamId),
+        members: normalizeMembers(profit.members),
+      }));
+
+      const fallbackTeamProfits = toTeamProfitMapFromAccounts(accountProfitsData);
+      const profitsData = normalizedTeamProfits.length > 0 ? normalizedTeamProfits : fallbackTeamProfits;
+
+      const profitsWithMembers = profitsData.map((teamProfit) => {
+        if (teamProfit.members.length > 0) {
+          return teamProfit;
         }
-      }
+
+        const fallbackMembers = accountProfitsData.filter((account) => {
+          if (account.teamId == null) return false;
+          return Number(account.teamId) === Number(teamProfit.teamId);
+        });
+
+        return {
+          ...teamProfit,
+          members: fallbackMembers,
+          memberCount: teamProfit.memberCount || fallbackMembers.length,
+        };
+      });
+
+      console.log('[PROFIT] 팀 메타:', teamsData.length, '팀 수익률:', normalizedTeamProfits.length, '개인 수익률:', accountProfitsData.length, '최종 팀수익률:', profitsWithMembers.length);
+
+      setTeams(teamsData);
+      setTeamProfits(profitsWithMembers);
+
+      // 각 팀의 멤버 역할/상태 조회
+      const membersMap: { [teamId: number]: TeamMemberResponse[] } = {};
+      await Promise.all(
+        teamsData.map(async (team) => {
+          try {
+            membersMap[team.id] = await getTeamMembers(team.id);
+          } catch (err) {
+            console.error(`팀 ${team.id} 멤버 조회 오류:`, err);
+            membersMap[team.id] = [];
+          }
+        })
+      );
       setTeamMembers(membersMap);
     } catch (err: any) {
       console.error('팀 목록 조회 오류:', err);
@@ -152,23 +272,13 @@ export default function BattleDetailScreen() {
   // 화면 포커스 시 데이터 새로고침
   useFocusEffect(
     useCallback(() => {
+      fetchMyInfo();
       fetchBattleDetail();
       fetchTeams();
       fetchComments();
       checkParticipation();
-    }, [fetchBattleDetail, fetchTeams, fetchComments, checkParticipation])
+    }, [fetchMyInfo, fetchBattleDetail, fetchTeams, fetchComments, checkParticipation])
   );
-
-  const stocks: Stock[] = battle?.ticker ? [
-    {
-      symbol: battle.ticker,
-      name: battle.ticker,
-      currentPrice: 0,
-      change: 0,
-      changePercent: 0,
-      delayMinutes: 15,
-    },
-  ] : [];
 
   const handleJoinBattle = () => {
     setShowJoinModal(true);
@@ -202,6 +312,71 @@ export default function BattleDetailScreen() {
     }
   };
 
+  // 댓글/대댓글 삭제 권한 판단
+  const canDeleteComment = (commentUserId: string): boolean => {
+    console.log('[DELETE] 권한 체크 시작 - myUserId:', myUserId, 'commentUserId:', commentUserId, 'myRole:', myRole);
+
+    if (!myUserId) {
+      console.warn('[DELETE] myUserId가 없습니다.');
+      return false;
+    }
+
+    // 1. ADMIN 권한 체크
+    if (myRole === 'ADMIN') {
+      console.log('[DELETE] ADMIN 권한으로 삭제 가능');
+      return true;
+    }
+
+    // 2. 본인 댓글 체크
+    if (myUserId === commentUserId) {
+      console.log('[DELETE] 본인 댓글이므로 삭제 가능');
+      return true;
+    }
+
+    // 3. 팀 리더 권한 체크
+    console.log('[DELETE] 팀 리더 권한 체크 시작, teamMembers:', Object.keys(teamMembers));
+    const isTeamLeader = Object.values(teamMembers).some((members) => {
+      return members.some((m) => {
+        const isLeader = m.userId === myUserId && m.role === 'LEADER' && m.status === 'ACTIVE';
+        if (isLeader) {
+          console.log('[DELETE] 팀 리더 권한 확인됨 - teamId:', m.id, 'userId:', m.userId);
+        }
+        return isLeader;
+      });
+    });
+
+    if (isTeamLeader) {
+      console.log('[DELETE] 팀 리더 권한으로 삭제 가능');
+      return true;
+    }
+
+    console.log('[DELETE] 삭제 권한 없음');
+    return false;
+  };
+
+  const handleDeleteComment = (commentId: number) => {
+    Alert.alert(
+      '댓글 삭제',
+      '댓글을 삭제하시겠습니까?',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteComment(id, commentId);
+              await fetchComments();
+            } catch (err: any) {
+              const msg = err.response?.data?.message || '댓글 삭제에 실패했습니다.';
+              Alert.alert('삭제 실패', msg);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // 날짜 포맷 헬퍼
   const formatCommentDate = (isoDate: string): string => {
     const date = new Date(isoDate);
@@ -214,14 +389,37 @@ export default function BattleDetailScreen() {
     });
   };
 
-  const maxRate = teams.length > 0 ? Math.max(...teams.map(t => Math.abs(t.rate))) : 0;
+  // 수익률 챠트용 최대값 (teamProfits 기준)
+  const maxRate = teamProfits.length > 0
+    ? Math.max(...teamProfits.map(tp => Math.abs(tp.returnRate)))
+    : 0;
+
+  // 동적 스타일 변수 (react-native/no-inline-styles 린트 규칙 대응)
+  const isDark = colorScheme === 'dark';
+  const dy = {
+    pageBg:         { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' },
+    cardBg:         { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' },
+    badgeBg:        { backgroundColor: isDark ? '#0F172A' : '#F1F5F9' },
+    replyingBg:     { backgroundColor: isDark ? '#1E293B' : '#EEF2FF' },
+    borderTop:      { borderTopWidth: 1 as const, borderTopColor: isDark ? '#334155' : '#E5E7EB' },
+    textColor:      { color: colors.text },
+    iconColor:      { color: colors.icon },
+    iconMt8:        { color: colors.icon, marginTop: 8 },
+    textMt12:       { color: colors.text, marginTop: 12 },
+    boldText:       { fontWeight: '700' as const, color: colors.text },
+    iconFs13:       { color: colors.icon, fontSize: 13 },
+    toggleTeamsTxt: { color: chartView === 'teams' ? '#6366F1' : colors.icon },
+    toggleStockTxt: { color: chartView === 'stock' ? '#6366F1' : colors.icon },
+    commentBtn:     { backgroundColor: postingComment ? '#94A3B8' : '#6366F1' },
+    rankBadge:      { backgroundColor: '#6366F1' },
+  };
 
   // 로딩 상태
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+      <View style={[styles.container, styles.centerContent, dy.pageBg]}>
         <ActivityIndicator size="large" color="#6366F1" />
-        <Text style={{ color: colors.text, marginTop: 12 }}>로딩 중...</Text>
+        <Text style={dy.textMt12}>로딩 중...</Text>
       </View>
     );
   }
@@ -229,25 +427,25 @@ export default function BattleDetailScreen() {
   // 에러 상태
   if (error || !battle) {
     return (
-      <View style={[styles.container, styles.centerContent, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+      <View style={[styles.container, styles.centerContent, dy.pageBg]}>
         <IconSymbol size={48} name="exclamationmark.triangle.fill" color="#EF4444" />
-        <Text style={[styles.errorText, { color: colors.text }]}>{error || '배틀 정보를 찾을 수 없습니다.'}</Text>
+        <Text style={[styles.errorText, dy.textColor]}>{error || '배틀 정보를 찾을 수 없습니다.'}</Text>
         <TouchableOpacity
-          style={[styles.retryButton, { backgroundColor: '#6366F1' }]}
+          style={[styles.retryButton, styles.accentBg]}
           onPress={fetchBattleDetail}>
           <Text style={styles.retryButtonText}>다시 시도</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={{ marginTop: 12 }}
+          style={styles.mt12}
           onPress={() => navigation.goBack()}>
-          <Text style={{ color: '#6366F1' }}>뒤로 가기</Text>
+          <Text style={styles.accentText}>뒤로 가기</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+    <View style={[styles.container, dy.pageBg]}>
       <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContentContainer}>
 
         {/* 헤더 */}
@@ -260,7 +458,7 @@ export default function BattleDetailScreen() {
 
           <View style={styles.headerContent}>
             <View style={styles.titleRow}>
-              <Text style={[styles.title, { color: colors.text }]}>{battle.name}</Text>
+              <Text style={[styles.title, dy.textColor]}>{battle.name}</Text>
               <View style={[styles.statusBadge, { backgroundColor: getStatusColor(battle.status) }]}>
                 <Text style={styles.statusText}>{getStatusText(battle.status)}</Text>
               </View>
@@ -269,26 +467,26 @@ export default function BattleDetailScreen() {
             <View style={styles.metaRow}>
               <View style={styles.metaItem}>
                 <IconSymbol size={14} name="calendar" color={colors.icon} />
-                <Text style={[styles.metaText, { color: colors.icon }]}>
+                <Text style={[styles.metaText, dy.iconColor]}>
                   {formatDate(battle.startAt)} - {formatDate(battle.endAt)}
                 </Text>
               </View>
               <View style={styles.metaItem}>
                 <IconSymbol size={14} name="person.2.fill" color={colors.icon} />
-                <Text style={[styles.metaText, { color: colors.icon }]}>
+                <Text style={[styles.metaText, dy.iconColor]}>
                   최대 {battle.memberCount}명 × {battle.teamCount}팀
                 </Text>
               </View>
             </View>
 
             <View style={styles.battleInfoRow}>
-              <View style={[styles.infoBadge, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F1F5F9' }]}>
-                <Text style={[styles.infoBadgeText, { color: colors.icon }]}>
+              <View style={[styles.infoBadge, dy.badgeBg]}>
+                <Text style={[styles.infoBadgeText, dy.iconColor]}>
                   티커: {battle.ticker}
                 </Text>
               </View>
-              <View style={[styles.infoBadge, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F1F5F9' }]}>
-                <Text style={[styles.infoBadgeText, { color: colors.icon }]}>
+              <View style={[styles.infoBadge, dy.badgeBg]}>
+                <Text style={[styles.infoBadgeText, dy.iconColor]}>
                   초기자본: ${battle.initialCapital.toLocaleString()}
                 </Text>
               </View>
@@ -297,18 +495,18 @@ export default function BattleDetailScreen() {
         </View>
 
         {/* 차트 토글 */}
-        <View style={[styles.chartToggle, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={[styles.chartToggle, dy.cardBg]}>
           <TouchableOpacity
             style={[styles.toggleButton, chartView === 'teams' && styles.activeToggle]}
             onPress={() => setChartView('teams')}>
-            <Text style={[styles.toggleText, { color: chartView === 'teams' ? '#6366F1' : colors.icon }]}>
+            <Text style={[styles.toggleText, dy.toggleTeamsTxt]}>
               팀 격차
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.toggleButton, chartView === 'stock' && styles.activeToggle]}
             onPress={() => setChartView('stock')}>
-            <Text style={[styles.toggleText, { color: chartView === 'stock' ? '#6366F1' : colors.icon }]}>
+            <Text style={[styles.toggleText, dy.toggleStockTxt]}>
               종목 차트
             </Text>
           </TouchableOpacity>
@@ -316,33 +514,34 @@ export default function BattleDetailScreen() {
 
         {/* 팀 격차 막대 그래프 */}
         {chartView === 'teams' && (
-          <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <View style={[styles.card, styles.shadow, dy.cardBg]}>
             <ThemedText type="subtitle" style={styles.sectionTitle}>수익률 비교</ThemedText>
 
             {loadingTeams ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
+              <View style={styles.paddedCenter}>
                 <ActivityIndicator size="small" color="#6366F1" />
-                <Text style={{ color: colors.icon, marginTop: 8 }}>팀 정보 로딩 중...</Text>
+                <Text style={dy.iconMt8}>팀 정보 로딩 중...</Text>
               </View>
-            ) : teams.length === 0 ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
+            ) : teamProfits.length === 0 ? (
+              <View style={styles.paddedCenter}>
                 <IconSymbol size={32} name="person.2.slash" color={colors.icon} />
-                <Text style={{ color: colors.icon, marginTop: 8 }}>아직 참여 팀이 없습니다</Text>
+                <Text style={dy.iconMt8}>아직 수익률 데이터가 없습니다</Text>
               </View>
             ) : (
               <>
                 <View style={styles.barChartContainer}>
-                  {teams.map((team, index) => {
-                    const barWidth = maxRate > 0 ? (Math.abs(team.rate) / maxRate) * 100 : 0;
-                    const isPositive = team.rate >= 0;
+                  {teamProfits.map((tp, index) => {
+                    const barWidth = maxRate > 0 ? (Math.abs(tp.returnRate) / maxRate) * 100 : 0;
+                    const isPositive = tp.returnRate >= 0;
                     const teamColor = TEAM_COLORS[index % TEAM_COLORS.length];
+                    const barValueStyle = isPositive ? styles.profitPositive : styles.profitNegative;
 
                     return (
-                      <View key={team.id} style={styles.barChartRow}>
+                      <View key={tp.teamId} style={styles.barChartRow}>
                         <View style={styles.teamInfo}>
                           <View style={[styles.teamColorDot, { backgroundColor: teamColor }]} />
-                          <Text style={[styles.teamBarName, { color: colors.text }]}>
-                            {team.name}
+                          <Text style={[styles.teamBarName, dy.textColor]}>
+                            {tp.teamName}
                           </Text>
                         </View>
 
@@ -356,23 +555,20 @@ export default function BattleDetailScreen() {
                           ]} />
                         </View>
 
-                        <Text style={[
-                          styles.barValue,
-                          { color: isPositive ? '#10B981' : '#EF4444' }
-                        ]}>
-                          {isPositive ? '+' : ''}{team.rate.toFixed(1)}%
+                        <Text style={[styles.barValue, barValueStyle]}>
+                          {isPositive ? '+' : ''}{tp.returnRate.toFixed(2)}%
                         </Text>
                       </View>
                     );
                   })}
                 </View>
 
-                {teams.length >= 2 && (
+                {teamProfits.length >= 2 && (
                   <View style={styles.chartLegend}>
-                    <Text style={[styles.legendText, { color: colors.icon }]}>
-                      {teams.sort((a, b) => b.rate - a.rate)[0].name}이(가){' '}
-                      <Text style={{ fontWeight: '700', color: colors.text }}>
-                        {Math.abs(teams[0].rate - teams[1].rate).toFixed(1)}%p
+                    <Text style={[styles.legendText, dy.iconColor]}>
+                      {teamProfits[0].teamName}이(가){' '}
+                      <Text style={dy.boldText}>
+                        {Math.abs(teamProfits[0].returnRate - teamProfits[1].returnRate).toFixed(2)}%p
                       </Text>
                       {' '}앞서고 있습니다
                     </Text>
@@ -383,68 +579,37 @@ export default function BattleDetailScreen() {
           </View>
         )}
 
-        {/* 종목 현재가 */}
+        {/* 종목 정보 */}
         {chartView === 'stock' && (
-          <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <View style={[styles.card, styles.shadow, dy.cardBg]}>
             <View style={styles.stockHeader}>
               <ThemedText type="subtitle" style={styles.sectionTitle}>대결 종목</ThemedText>
-              <View style={[styles.delayBadge, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-                <IconSymbol size={12} name="clock.fill" color="#F59E0B" />
-                <Text style={[styles.delayText, { color: '#F59E0B' }]}>15분 지연</Text>
+            </View>
+            <View style={styles.stockItem}>
+              <View style={styles.flex1}>
+                <Text style={[styles.stockSymbol, dy.textColor]}>{battle.ticker}</Text>
+                <Text style={[styles.stockName, dy.iconColor]}>티커 코드</Text>
               </View>
             </View>
-
-            {stocks.map((stock, index) => (
-              <View
-                key={stock.symbol}
-                style={[
-                  styles.stockItem,
-                  index > 0 && {
-                    borderTopWidth: 1,
-                    borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB'
-                  }
-                ]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.stockSymbol, { color: colors.text }]}>
-                    {stock.symbol}
-                  </Text>
-                  <Text style={[styles.stockName, { color: colors.icon }]}>
-                    {stock.name}
-                  </Text>
-                </View>
-
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.stockPrice, { color: colors.text }]}>
-                    ${stock.currentPrice.toFixed(2)}
-                  </Text>
-                  <View style={styles.stockChange}>
-                    <IconSymbol
-                      size={12}
-                      name={stock.change >= 0 ? 'arrow.up' : 'arrow.down'}
-                      color={stock.change >= 0 ? '#10B981' : '#EF4444'}
-                    />
-                    <Text style={[
-                      styles.stockChangeText,
-                      { color: stock.change >= 0 ? '#10B981' : '#EF4444' }
-                    ]}>
-                      {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)} ({stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%)
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            ))}
           </View>
         )}
 
         {/* 팀별 상세 정보 */}
         {teams.map((team, teamIndex) => {
-          const members = teamMembers[team.id] || [];
+          const metaMembers = teamMembers[team.id] || [];
+          const profit = teamProfits.find(tp => tp.teamId === team.id);
+          const profitMembers = profit?.members ?? [];
           const teamColor = TEAM_COLORS[teamIndex % TEAM_COLORS.length];
+          const myTeamMember = metaMembers.find((m) => m.userId === myUserId && m.status === 'ACTIVE');
+          const canManageTeam = !!myTeamMember && myTeamMember.role === 'LEADER';
+          const teamReturnStyle = profit
+            ? (profit.returnRate >= 0 ? styles.profitPositive : styles.profitNegative)
+            : null;
 
           return (
             <View
               key={team.id}
-              style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+              style={[styles.card, styles.shadow, dy.cardBg]}>
 
               <View style={styles.teamHeader}>
                 <View style={styles.teamHeaderLeft}>
@@ -452,35 +617,47 @@ export default function BattleDetailScreen() {
                   <ThemedText type="subtitle" style={styles.teamName}>
                     {team.name}
                   </ThemedText>
-                  <View style={[styles.memberCountBadge, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F1F5F9' }]}>
-                    <Text style={[styles.memberCountText, { color: colors.icon }]}>
+                  {profit && (
+                    <View style={[styles.memberCountBadge, styles.accentBg]}>
+                      <Text style={[styles.memberCountText, styles.whiteText]}>
+                        {profit.rank}위
+                      </Text>
+                    </View>
+                  )}
+                  <View style={[styles.memberCountBadge, dy.badgeBg]}>
+                    <Text style={[styles.memberCountText, dy.iconColor]}>
                       {team.memberCount}명
                     </Text>
                   </View>
                 </View>
                 <View style={styles.teamStats}>
-                  <Text style={[styles.teamStatLabel, { color: colors.icon }]}>수익률</Text>
-                  <Text style={[
-                    styles.teamStatValue,
-                    { color: team.rate >= 0 ? '#10B981' : '#EF4444' }
-                  ]}>
-                    {team.rate >= 0 ? '+' : ''}{team.rate.toFixed(1)}%
-                  </Text>
+                  {profit ? (
+                    <>
+                      <Text style={[styles.teamStatValue, teamReturnStyle]}>
+                        {profit.returnRate >= 0 ? '+' : ''}{profit.returnRate.toFixed(2)}%
+                      </Text>
+                      <Text style={[styles.teamStatLabel, dy.iconColor]}>
+                        {profit.returnAmount >= 0 ? '+' : ''}{profit.returnAmount.toLocaleString()}원
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={[styles.teamStatLabel, dy.iconColor]}>데이터 없음</Text>
+                  )}
                 </View>
               </View>
 
               {team.description && (
-                <Text style={[styles.teamDescription, { color: colors.icon }]}>
+                <Text style={[styles.teamDescription, dy.iconColor]}>
                   {team.description}
                 </Text>
               )}
 
-              {/* 초대 코드 표시 (참여 중인 사용자에게만 노출) */}
-              {isParticipating && (
-                <View style={[styles.inviteCodeContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-                  <Text style={[styles.inviteCodeLabel, { color: colors.icon }]}>초대 코드</Text>
+              {/* 초대 코드 표시 (본인 팀이고 inviteCode가 있을 때만) */}
+              {isParticipating && team.inviteCode && (
+                <View style={[styles.inviteCodeContainer, dy.pageBg]}>
+                  <Text style={[styles.inviteCodeLabel, dy.iconColor]}>초대 코드</Text>
                   <View style={styles.inviteCodeRow}>
-                    <Text style={[styles.inviteCodeText, { color: '#6366F1' }]} selectable={true}>
+                    <Text style={[styles.inviteCodeText, styles.accentText]} selectable={true}>
                       {team.inviteCode}
                     </Text>
                     <TouchableOpacity 
@@ -495,54 +672,101 @@ export default function BattleDetailScreen() {
                 </View>
               )}
 
+              {canManageTeam && (
+                <TouchableOpacity
+                  style={styles.manageTeamButton}
+                  onPress={() => navigation.navigate('TeamManage', {
+                    battleId: id,
+                    teamId: team.id,
+                    teamName: team.name,
+                  })}
+                >
+                  <IconSymbol size={14} name="person.3.fill" color="#6366F1" />
+                  <Text style={styles.manageTeamButtonText}>팀 관리</Text>
+                </TouchableOpacity>
+              )}
+
               {/* 팀원 목록 */}
               <View style={styles.membersContainer}>
-                {members.length === 0 ? (
-                  <View style={{ padding: 16, alignItems: 'center' }}>
-                    <Text style={{ color: colors.icon }}>팀원 정보가 없습니다</Text>
+                {profitMembers.length === 0 && metaMembers.length === 0 ? (
+                  <View style={styles.paddedCenter16}>
+                    <Text style={dy.iconColor}>팀원 정보가 없습니다</Text>
                   </View>
+                ) : profitMembers.length > 0 ? (
+                  // 수익률 API 데이터 우선 표시 (rank 기준 정렬)
+                  profitMembers.map((pm, index) => {
+                    const meta = metaMembers.find(m => m.userId === pm.userId);
+                    const displayName = meta?.userNickname || pm.userName;
+                    return (
+                      <View
+                        key={pm.accountId}
+                        style={[
+                          styles.memberRow,
+                          index > 0 && dy.borderTop
+                        ]}>
+
+                        <View style={[styles.memberRank, dy.pageBg]}>
+                          <Text style={[styles.memberRankText, dy.iconColor]}>
+                            {index + 1}
+                          </Text>
+                        </View>
+
+                        <View style={styles.flex1}>
+                          <View style={styles.rowCenter6}>
+                            <Text style={[styles.memberUsername, dy.textColor]}>
+                              {displayName}
+                            </Text>
+                            {meta?.role === 'LEADER' && (
+                              <View style={[styles.leaderBadge, styles.accentBg]}>
+                                <Text style={styles.leaderBadgeText}>리더</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={[styles.memberValue, dy.iconColor]}>
+                            {pm.returnAmount >= 0 ? '+' : ''}{pm.returnAmount.toLocaleString()}원
+                          </Text>
+                        </View>
+
+                        <Text style={[styles.memberProfit, pm.returnRate >= 0 ? styles.profitPositive : styles.profitNegative]}>
+                          {pm.returnRate >= 0 ? '+' : ''}{pm.returnRate.toFixed(2)}%
+                        </Text>
+                      </View>
+                    );
+                  })
                 ) : (
-                  members.map((member, index) => (
+                  // 수익률 데이터 없을 때 역할/상태 정보만 표시
+                  metaMembers.map((member, index) => (
                     <View
                       key={member.id}
                       style={[
                         styles.memberRow,
-                        index > 0 && {
-                          borderTopWidth: 1,
-                          borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB'
-                        }
+                        index > 0 && dy.borderTop
                       ]}>
 
-                      <View style={[
-                        styles.memberRank,
-                        { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }
-                      ]}>
-                        <Text style={[styles.memberRankText, { color: colors.icon }]}>
-                          {member.rank}
+                      <View style={[styles.memberRank, dy.pageBg]}>
+                        <Text style={[styles.memberRankText, dy.iconColor]}>
+                          {index + 1}
                         </Text>
                       </View>
 
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={[styles.memberUsername, { color: colors.text }]}>
+                      <View style={styles.flex1}>
+                        <View style={styles.rowCenter6}>
+                          <Text style={[styles.memberUsername, dy.textColor]}>
                             {member.userNickname}
                           </Text>
                           {member.role === 'LEADER' && (
-                            <View style={[styles.leaderBadge, { backgroundColor: '#6366F1' }]}>
+                            <View style={[styles.leaderBadge, styles.accentBg]}>
                               <Text style={styles.leaderBadgeText}>리더</Text>
                             </View>
                           )}
                         </View>
-                        <Text style={[styles.memberValue, { color: colors.icon }]}>
-                          {member.status === 'ACTIVE' ? '활동중' : '비활성'}
+                        <Text style={[styles.memberValue, dy.iconColor]}>
+                          {member.status === 'ACTIVE' ? '활동중' : member.status === 'LEFT' ? '탈퇴' : '강퇴'}
                         </Text>
                       </View>
 
-                      <Text style={[
-                        styles.memberProfit,
-                        { color: member.rate >= 0 ? '#10B981' : '#EF4444' }
-                      ]}>
-                        {member.rate >= 0 ? '+' : ''}{member.rate.toFixed(1)}%
+                      <Text style={[styles.memberProfit, dy.iconColor]}>
+                        -
                       </Text>
                     </View>
                   ))
@@ -556,7 +780,7 @@ export default function BattleDetailScreen() {
         {!isParticipating && (
           <View style={styles.actionButtons}>
             <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#6366F1' }]}
+              style={[styles.actionButton, styles.accentBg]}
               onPress={handleJoinBattle}>
               <IconSymbol size={20} name="person.badge.plus.fill" color="#FFFFFF" />
               <Text style={styles.actionButtonText}>대결 참여하기</Text>
@@ -565,7 +789,7 @@ export default function BattleDetailScreen() {
         )}
 
         {/* 댓글 섹션 */}
-        <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={[styles.card, styles.shadow, dy.cardBg]}>
           <View style={styles.commentsHeader}>
             <ThemedText type="subtitle" style={styles.sectionTitle}>
               댓글 {comments.length}
@@ -574,9 +798,9 @@ export default function BattleDetailScreen() {
 
           {/* 대댓글 표시 */}
           {isParticipating && replyingTo && (
-            <View style={[styles.replyingIndicator, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#EEF2FF' }]}>
-              <Text style={[styles.replyingText, { color: colors.icon }]}>
-                <Text style={{ fontWeight: '700', color: '#6366F1' }}>{replyingTo.nickname}</Text>님에게 답글 작성 중
+            <View style={[styles.replyingIndicator, dy.replyingBg]}>
+              <Text style={[styles.replyingText, dy.iconColor]}>
+                <Text style={styles.boldAccent}>{replyingTo.nickname}</Text>님에게 답글 작성 중
               </Text>
               <TouchableOpacity onPress={() => { setReplyingTo(null); setCommentText(''); }}>
                 <IconSymbol size={16} name="xmark.circle.fill" color={colors.icon} />
@@ -586,9 +810,9 @@ export default function BattleDetailScreen() {
 
           {/* 댓글 입력 - 참여자만 */}
           {isParticipating ? (
-            <View style={[styles.commentInputContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+            <View style={[styles.commentInputContainer, dy.pageBg]}>
               <TextInput
-                style={[styles.commentInput, { color: colors.text }]}
+                style={[styles.commentInput, dy.textColor]}
                 placeholder={replyingTo ? `${replyingTo.nickname}님에게 답글...` : '댓글을 입력하세요...'}
                 placeholderTextColor={colors.icon}
                 value={commentText}
@@ -597,7 +821,7 @@ export default function BattleDetailScreen() {
                 editable={!postingComment}
               />
               <TouchableOpacity
-                style={[styles.commentButton, { backgroundColor: postingComment ? '#94A3B8' : '#6366F1' }]}
+                style={[styles.commentButton, dy.commentBtn]}
                 onPress={handlePostComment}
                 disabled={postingComment}>
                 {postingComment ? (
@@ -608,20 +832,20 @@ export default function BattleDetailScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={[styles.commentInputContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', justifyContent: 'center', alignItems: 'center', paddingVertical: 14 }]}>
-              <Text style={{ color: colors.icon, fontSize: 13 }}>배틀에 참여해야 댓글을 작성할 수 있습니다.</Text>
+            <View style={[styles.commentInputContainer, dy.pageBg, styles.commentInputNone]}>
+              <Text style={dy.iconFs13}>배틀에 참여해야 댓글을 작성할 수 있습니다.</Text>
             </View>
           )}
 
           {/* 댓글 목록 */}
           <View style={styles.commentsList}>
             {loadingComments ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
+              <View style={styles.paddedCenter}>
                 <ActivityIndicator size="small" color="#6366F1" />
               </View>
             ) : comments.length === 0 ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: colors.icon }}>아직 댓글이 없습니다. 첫 댓글을 남겨보세요!</Text>
+              <View style={styles.paddedCenter}>
+                <Text style={dy.iconColor}>아직 댓글이 없습니다. 첫 댓글을 남겨보세요!</Text>
               </View>
             ) : (
               comments.map((comment, index) => (
@@ -629,35 +853,42 @@ export default function BattleDetailScreen() {
                   key={comment.id}
                   style={[
                     styles.commentItem,
-                    index > 0 && {
-                      borderTopWidth: 1,
-                      borderTopColor: colorScheme === 'dark' ? '#334155' : '#E5E7EB'
-                    }
+                    index > 0 && dy.borderTop
                   ]}>
                   <View style={styles.commentHeader}>
-                    <Text style={[styles.commentUsername, { color: colors.text }]}>
+                    <Text style={[styles.commentUsername, dy.textColor]}>
                       {comment.userNickname}
                     </Text>
-                    <Text style={[styles.commentTimestamp, { color: colors.icon }]}>
+                    <Text style={[styles.commentTimestamp, dy.iconColor]}>
                       {formatCommentDate(comment.createdAt)}
                     </Text>
                   </View>
-                  <Text style={[styles.commentContent, { color: comment.isDeleted ? colors.icon : colors.text }]}>
+                  <Text style={[styles.commentContent, comment.isDeleted ? dy.iconColor : dy.textColor]}>
                     {comment.isDeleted ? '삭제된 댓글입니다.' : comment.content}
                   </Text>
 
-                  {/* 답글 버튼 - 참여자만 */}
-                  {!comment.isDeleted && isParticipating && (
-                    <TouchableOpacity
-                      style={styles.replyButton}
-                      onPress={() => {
-                        setReplyingTo({ id: comment.id, nickname: comment.userNickname });
-                        setCommentText('');
-                      }}>
-                      <IconSymbol size={14} name="arrowshape.turn.up.left.fill" color={colors.icon} />
-                      <Text style={[styles.replyButtonText, { color: colors.icon }]}>답글</Text>
-                    </TouchableOpacity>
-                  )}
+                  {/* 답글 버튼 + 삭제 버튼 */}
+                  <View style={styles.commentActions}>
+                    {!comment.isDeleted && isParticipating && (
+                      <TouchableOpacity
+                        style={styles.replyButton}
+                        onPress={() => {
+                          setReplyingTo({ id: comment.id, nickname: comment.userNickname });
+                          setCommentText('');
+                        }}>
+                        <IconSymbol size={14} name="arrowshape.turn.up.left.fill" color={colors.icon} />
+                        <Text style={[styles.replyButtonText, dy.iconColor]}>답글</Text>
+                      </TouchableOpacity>
+                    )}
+                    {!comment.isDeleted && canDeleteComment(comment.userId) && (
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteComment(comment.id)}>
+                        <IconSymbol size={14} name="trash" color="#EF4444" />
+                        <Text style={[styles.replyButtonText, styles.redText]}>삭제</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
 
                   {/* 대댓글 표시 */}
                   {comment.replies && comment.replies.length > 0 && (
@@ -665,16 +896,24 @@ export default function BattleDetailScreen() {
                       {comment.replies.map((reply) => (
                         <View key={reply.id} style={styles.replyItem}>
                           <View style={styles.commentHeader}>
-                            <Text style={[styles.commentUsername, { color: colors.text, fontSize: 13 }]}>
+                            <Text style={[styles.commentUsername, dy.textColor, styles.textFs13]}>
                               ↳ {reply.userNickname}
                             </Text>
-                            <Text style={[styles.commentTimestamp, { color: colors.icon }]}>
+                            <Text style={[styles.commentTimestamp, dy.iconColor]}>
                               {formatCommentDate(reply.createdAt)}
                             </Text>
                           </View>
-                          <Text style={[styles.commentContent, { color: reply.isDeleted ? colors.icon : colors.text, fontSize: 13 }]}>
+                          <Text style={[styles.commentContent, reply.isDeleted ? dy.iconColor : dy.textColor, styles.textFs13]}>
                             {reply.isDeleted ? '삭제된 댓글입니다.' : reply.content}
                           </Text>
+                          {!reply.isDeleted && canDeleteComment(reply.userId) && (
+                            <TouchableOpacity
+                              style={[styles.deleteButton, styles.mt4]}
+                              onPress={() => handleDeleteComment(reply.id)}>
+                              <IconSymbol size={12} name="trash" color="#EF4444" />
+                              <Text style={[styles.replyButtonText, styles.redFs11]}>삭제</Text>
+                            </TouchableOpacity>
+                          )}
                         </View>
                       ))}
                     </View>
@@ -1031,6 +1270,23 @@ const styles = StyleSheet.create({
   copyButton: {
     padding: 8,
   },
+  manageTeamButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#6366F1',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  manageTeamButtonText: {
+    color: '#6366F1',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   actionButtons: {
     flexDirection: 'row',
     gap: 12,
@@ -1123,6 +1379,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  commentActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
   replyingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1147,4 +1417,22 @@ const styles = StyleSheet.create({
   bottomSpacer: {
     height: 40,
   },
+  // 동적 스타일 대응 정적 스타일
+  flex1:            { flex: 1 },
+  rowCenter6:       { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6 },
+  paddedCenter:     { padding: 20, alignItems: 'center' as const },
+  paddedCenter16:   { padding: 16, alignItems: 'center' as const },
+  mt12:             { marginTop: 12 },
+  mt4:              { marginTop: 4 },
+  accentBg:         { backgroundColor: '#6366F1' },
+  accentText:       { color: '#6366F1' },
+  whiteText:        { color: '#FFFFFF' },
+  bold700:          { fontWeight: '700' as const },
+  boldAccent:       { fontWeight: '700' as const, color: '#6366F1' },
+  redText:          { color: '#EF4444' },
+  redFs11:          { color: '#EF4444', fontSize: 11 },
+  textFs13:         { fontSize: 13 },
+  profitPositive:   { color: '#10B981' },
+  profitNegative:   { color: '#EF4444' },
+  commentInputNone: { justifyContent: 'center' as const, alignItems: 'center' as const, paddingVertical: 14 },
 });

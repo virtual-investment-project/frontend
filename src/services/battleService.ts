@@ -23,6 +23,20 @@ export const getAllBattles = async (): Promise<BattleListResponse[]> => {
 };
 
 /**
+ * 진행중인 배틀 목록 조회
+ * GET /api/battles?status=PROGRESS&limit={limit}
+ * 인증: 불필요
+ */
+export const getProgressBattles = async (
+  limit: number = 2
+): Promise<BattleListResponse[]> => {
+  const response = await apiClient.get<BattleListResponse[]>('/api/battles', {
+    params: { status: 'PROGRESS', limit },
+  });
+  return response.data;
+};
+
+/**
  * 배틀 생성
  * POST /api/battles
  * 인증: 필요
@@ -74,6 +88,7 @@ export const getBattleTeamProfits = async (
 
 export default {
   getAllBattles,
+  getProgressBattles,
   createBattle,
   getBattleById,
   getBattleAccountProfits,

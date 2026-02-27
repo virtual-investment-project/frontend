@@ -12,6 +12,9 @@ import { Account } from '../types/account';
 import { getPersonalAccount, getBattleAccount } from '../services/accountService';
 import { getAllBattles } from '../services/battleService';
 import { createOrder, getOrdersByAccount, cancelOrder, OrderResponse } from '../services/orderService';
+import { getAccountProfitById } from '../services/accountService';
+import { getAccountHistory } from '../services/historyService';
+import { AccountProfitResponse, AccountHistoryResponse } from '../types/api';
 
 interface StockWithPrice extends Stock {
   currentPrice?: number;
@@ -52,6 +55,9 @@ export default function InvestScreen() {
 
   // 포트폴리오 탭용 선택된 계좌 상태
   const [portfolioSelectedAccount, setPortfolioSelectedAccount] = useState<Account | null>(null);
+  const [portfolioProfit, setPortfolioProfit] = useState<AccountProfitResponse | null>(null);
+  const [portfolioHistory, setPortfolioHistory] = useState<AccountHistoryResponse[]>([]);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
 
   // 투자 비율 관련 상태
   const [investmentRatio, setInvestmentRatio] = useState(0); // 0 ~ 100%
@@ -131,43 +137,7 @@ export default function InvestScreen() {
     }
   };
 
-  // 임시 포트폴리오
-  const portfolio = [
-    {
-      stock: {
-        symbol: 'NASDAQ:NVDA',
-        name: 'NVIDIA Corporation',
-        koreanName: '엔비디아',
-        currentPrice: 525.30,
-        change: 12.50,
-        changePercent: 2.43,
-        marketCap: '$1.29T',
-      },
-      quantity: 10,
-      avgPrice: 500.00,
-      currentValue: 5253.00,
-      profitLoss: 253.00,
-      profitPercent: 5.06
-    },
-    {
-      stock: {
-        symbol: 'NASDAQ:AMD',
-        name: 'Advanced Micro Devices',
-        koreanName: 'AMD',
-        currentPrice: 142.80,
-        change: -1.20,
-        changePercent: -0.83,
-        marketCap: '$231B',
-      },
-      quantity: 5,
-      avgPrice: 150.00,
-      currentValue: 714.00,
-      profitLoss: -36.00,
-      profitPercent: -4.80
-    },
-  ];
-
-  // 임시 주문 내역
+  // 주문 내역 상태
   const [orders, setOrders] = useState<Order[]>([]);
 
   // 주문 목록 조회
@@ -202,7 +172,30 @@ export default function InvestScreen() {
   }, [fetchOrders]);
 
 
-  const userBalance = 10000000; // 사용 가능 금액
+  // 포트폴리오 계좌 선택 시 수익 및 거래 내역 조회
+  useEffect(() => {
+    if (!portfolioSelectedAccount) {
+      setPortfolioProfit(null);
+      setPortfolioHistory([]);
+      return;
+    }
+    const fetchPortfolioData = async () => {
+      setPortfolioLoading(true);
+      try {
+        const [profit, history] = await Promise.all([
+          getAccountProfitById(portfolioSelectedAccount.id),
+          getAccountHistory(portfolioSelectedAccount.id),
+        ]);
+        setPortfolioProfit(profit);
+        setPortfolioHistory(history);
+      } catch (error) {
+        console.error('포트폴리오 데이터 조회 실패:', error);
+      } finally {
+        setPortfolioLoading(false);
+      }
+    };
+    fetchPortfolioData();
+  }, [portfolioSelectedAccount]);
 
   // 종목 선택
   const handleStockSelect = (stock: Stock) => {
@@ -606,75 +599,89 @@ export default function InvestScreen() {
         </TouchableOpacity>
 
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-          {/* 계좌 정보 */}
+          {/* 계좌 수익 정보 */}
           <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
             <Text style={[styles.accountDetailName, { color: colors.text }]}>{portfolioSelectedAccount.accountName}</Text>
             <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 16 }]}>총 평가금액</Text>
             <Text style={[styles.totalValue, { color: colors.text }]}>
-              ₩{portfolio.reduce((sum, item) => sum + item.currentValue, 0).toLocaleString()}
+              ₩{(portfolioProfit?.totalAsset ?? portfolioSelectedAccount.totalAsset).toLocaleString()}
             </Text>
-            <View style={styles.profitRow}>
-              <Text style={[styles.profitLabel, { color: colors.icon }]}>평가손익</Text>
-              <Text style={[styles.profitValue, { color: '#10B981' }]}>
-                +₩{portfolio.reduce((sum, item) => sum + item.profitLoss, 0).toLocaleString()} (+3.72%)
-              </Text>
-            </View>
+            {portfolioProfit && (
+              <>
+                <View style={styles.profitRow}>
+                  <Text style={[styles.profitLabel, { color: colors.icon }]}>평가손익</Text>
+                  <Text style={[styles.profitValue, { color: portfolioProfit.returnAmount >= 0 ? '#10B981' : '#EF4444' }]}>
+                    {portfolioProfit.returnAmount >= 0 ? '+' : ''}₩{portfolioProfit.returnAmount.toLocaleString()}{' '}
+                    ({portfolioProfit.returnRate >= 0 ? '+' : ''}{portfolioProfit.returnRate.toFixed(2)}%)
+                  </Text>
+                </View>
+                <View style={styles.profitRow}>
+                  <Text style={[styles.profitLabel, { color: colors.icon }]}>시드머니</Text>
+                  <Text style={[styles.profitValue, { color: colors.icon }]}>₩{portfolioProfit.seedMoney.toLocaleString()}</Text>
+                </View>
+              </>
+            )}
           </View>
 
-          {/* 보유 종목 목록 */}
-          {portfolio.map((item, index) => (
-            <View
-              key={index}
-              style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-              <View style={styles.portfolioHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.stockSymbol, { color: colors.text }]}>
-                    {item.stock.symbol.includes(':') ? item.stock.symbol.split(':')[1] : item.stock.symbol}
-                  </Text>
-                  <Text style={[styles.stockName, { color: colors.icon }]}>
-                    {item.stock.koreanName || item.stock.name}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.tradeButton, { backgroundColor: '#EF4444' }]}
-                  onPress={() => {
-                    setSelectedStock(item.stock);
-                    setOrderType('sell');
-                    setActiveTab('search');
-                  }}>
-                  <Text style={styles.tradeButtonText}>매도</Text>
-                </TouchableOpacity>
-              </View>
+          {/* 거래 내역 */}
+          <View style={[styles.sectionHeader, { marginTop: 8 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>거래 내역</Text>
+            <Text style={[styles.sectionCount, { color: colors.icon }]}>{portfolioHistory.length}건</Text>
+          </View>
 
-              <View style={styles.portfolioDetail}>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.icon }]}>보유수량</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>{item.quantity}주</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.icon }]}>평균단가</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>${item.avgPrice.toFixed(2)}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.icon }]}>현재가</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>
-                    ${item.stock.currentPrice?.toFixed(2) || '0.00'}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.icon }]}>평가금액</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>₩{item.currentValue.toLocaleString()}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.icon }]}>평가손익</Text>
-                  <Text style={[styles.detailValue, { color: item.profitLoss >= 0 ? '#10B981' : '#EF4444' }]}>
-                    {item.profitLoss >= 0 ? '+' : ''}₩{item.profitLoss.toLocaleString()} ({item.profitPercent >= 0 ? '+' : ''}
-                    {item.profitPercent.toFixed(2)}%)
-                  </Text>
-                </View>
-              </View>
+          {portfolioLoading ? (
+            <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF', alignItems: 'center', padding: 24 }]}>
+              <Text style={[styles.detailLabel, { color: colors.icon }]}>불러오는 중...</Text>
             </View>
-          ))}
+          ) : portfolioHistory.length === 0 ? (
+            <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF', alignItems: 'center', padding: 24 }]}>
+              <Text style={[styles.detailLabel, { color: colors.icon }]}>거래 내역이 없습니다</Text>
+            </View>
+          ) : (
+            portfolioHistory.map((item) => {
+              const tradeTypeLabel: Record<string, string> = {
+                BUY: '매수',
+                SELL: '매도',
+                SEED_MONEY: '시드머니',
+                PROFIT_SNAPSHOT: '수익 스냅샷',
+              };
+              const isPositive = item.tradeType === 'SELL' || item.tradeType === 'SEED_MONEY';
+              const amountColor = isPositive ? '#10B981' : (item.tradeType === 'BUY' ? '#EF4444' : colors.text);
+              return (
+                <View
+                  key={item.id}
+                  style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+                  <View style={styles.orderHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.stockSymbol, { color: colors.text }]}>{item.description}</Text>
+                      <Text style={[styles.orderTime, { color: colors.icon }]}>
+                        {new Date(item.createdAt).toLocaleString('ko-KR')}
+                      </Text>
+                    </View>
+                    <View style={[styles.orderTypeBadge, {
+                      backgroundColor:
+                        item.tradeType === 'BUY' ? '#EF4444' :
+                        item.tradeType === 'SELL' ? '#10B981' : '#6366F1',
+                    }]}>
+                      <Text style={styles.orderTypeText}>{tradeTypeLabel[item.tradeType] ?? item.tradeType}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.portfolioDetail}>
+                    <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: colors.icon }]}>거래 금액</Text>
+                      <Text style={[styles.detailValue, { color: amountColor }]}>
+                        {isPositive ? '+' : '-'}₩{Math.abs(item.amount).toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: colors.icon }]}>잔액 스냅샷</Text>
+                      <Text style={[styles.detailValue, { color: colors.text }]}>₩{item.balanceSnapshot.toLocaleString()}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })
+          )}
         </ScrollView>
       </View>
     );
@@ -771,10 +778,6 @@ export default function InvestScreen() {
       <View style={[styles.fixedHeader, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
         <View style={styles.header}>
           <ThemedText type="title" style={styles.title}>투자하기</ThemedText>
-          <View style={[styles.balanceCard, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-            <Text style={[styles.balanceLabel, { color: colors.icon }]}>사용 가능 금액</Text>
-            <Text style={[styles.balanceAmount, { color: '#6366F1' }]}>₩{userBalance.toLocaleString()}</Text>
-          </View>
         </View>
 
         {/* 탭 버튼 */}

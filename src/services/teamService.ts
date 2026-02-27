@@ -75,10 +75,23 @@ export const leaveTeam = async (teamId: number): Promise<void> => {
   await apiClient.delete(`/api/teams/${teamId}/leave`);
 };
 
+/**
+ * 팀원 추방
+ * DELETE /api/teams/{teamId}/members/{teamUserId}/kick
+ * 인증: 필요 (LEADER만 가능)
+ */
+export const kickTeamMember = async (
+  teamId: number,
+  teamUserId: number
+): Promise<void> => {
+  await apiClient.delete(`/api/teams/${teamId}/members/${teamUserId}/kick`);
+};
+
 export default {
   getTeamsByBattleId,
   createTeam,
   getTeamMembers,
   joinTeam,
   leaveTeam,
+  kickTeamMember,
 };

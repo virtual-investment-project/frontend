@@ -125,6 +125,30 @@ export interface MyPageProfitResponse {
   battleAccounts: AccountProfitResponse[];
 }
 
+// 거래 내역
+export type TradeType = 'BUY' | 'SELL' | 'SEED_MONEY' | 'PROFIT_SNAPSHOT';
+
+export interface AccountHistoryResponse {
+  id: string;
+  accountId: string;
+  tradeType: TradeType;
+  amount: number;
+  balanceSnapshot: number;
+  description: string;
+  createdAt: string;
+}
+
+// 개인 계좌 수익률 랭킹
+export interface AccountRankingResponse {
+  accountId: string;
+  userId: string;
+  accountName: string;
+  userName: string;
+  seedMoney: number;
+  totalAsset: number;
+  returnRate: number;
+}
+
 // Team API 타입 정의
 
 export type TeamUserRole = 'LEADER' | 'MEMBER';
@@ -134,7 +158,7 @@ export interface TeamResponse {
   id: number;
   battleId: string;
   name: string;
-  inviteCode: string;
+  inviteCode: string | null;
   description: string;
   rate: number;
   proceed: number;
@@ -168,7 +192,7 @@ export interface JoinTeamRequest {
 export interface CommentResponse {
   id: number;
   battleId: string;
-  userId: string;
+  userId: string;  // UUID 형식의 댓글 작성자 ID
   userNickname: string;
   parentId: number | null;
   content: string;
