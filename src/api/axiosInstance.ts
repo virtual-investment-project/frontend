@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { API_BASE_URL } from '@env';
 import { getAccessToken, getRefreshToken, setAccessToken, setRefreshToken, clearAllTokens } from '../utils/tokenStorage';
+import { resetToLogin } from '../navigation/navigationRef';
 
 // Axios 인스턴스 생성
 const apiClient = axios.create({
@@ -78,8 +79,9 @@ apiClient.interceptors.response.use(
         isRefreshing = false;
         processQueue(error, null);
         
-        // 토큰 삭제 및 로그인 화면으로 이동 (앱에서 처리하도록 에러 전파)
+        // 토큰 삭제 및 로그인 화면으로 이동
         await clearAllTokens();
+        resetToLogin();
         return Promise.reject(error);
       }
 
@@ -129,8 +131,9 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError, null);
         
-        // 토큰 갱신 실패 시 로그아웃 처리
+        // 토큰 갱신 실패 시 로그아웃 처리 후 로그인 화면으로 이동
         await clearAllTokens();
+        resetToLogin();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

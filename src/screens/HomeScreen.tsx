@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { ThemedText } from '../components/ThemedText';
 import { IconSymbol } from '../components/ui/IconSymbol';
@@ -75,35 +75,37 @@ export default function HomeScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadData();
-    checkLoginStatus();
-  }, [loadData, checkLoginStatus]);
+  const loadUnreadCount = useCallback(async () => {
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setUnreadNotifications(0);
+        return;
+      }
+      const count = await getUnreadCount();
+      setUnreadNotifications(count);
+    } catch (error) {
+      console.error('안 읽은 알림 수 조회 실패:', error);
+      setUnreadNotifications(0);
+    }
+  }, []);
 
   // Pull to refresh
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadData();
     await checkLoginStatus();
+    await loadUnreadCount();
     setRefreshing(false);
-  }, [loadData, checkLoginStatus]);
+  }, [loadData, checkLoginStatus, loadUnreadCount]);
 
-  // 알림 화면에서 돌아올 때 unread 수 갱신
+  // 홈 포커스 시 최신 데이터 동기화
   useFocusEffect(
     useCallback(() => {
-      const fetchUnread = async () => {
-        try {
-          const token = await getAccessToken();
-          if (token) {
-            const count = await getUnreadCount();
-            setUnreadNotifications(count);
-          }
-        } catch (error) {
-          console.error('안 읽은 알림 수 조회 실패:', error);
-        }
-      };
-      fetchUnread();
-    }, []),
+      loadData();
+      checkLoginStatus();
+      loadUnreadCount();
+    }, [loadData, checkLoginStatus, loadUnreadCount]),
   );
 
   // 진행중인 배틀만 필터링 (최대 2개)
@@ -111,10 +113,21 @@ export default function HomeScreen() {
     .filter((b) => b.status === 'PROGRESS')
     .slice(0, 2);
 
-  // 참여 가능한 배틀 (YET 상태, 최대 3개)
-  const availableBattles = battles
-    .filter((b) => b.status === 'YET')
-    .slice(0, 3);
+  // 참여 가능한 배틀
+  // 1) 모집 예정(YET) 우선
+  // 2) YET가 없으면 진행중(PROGRESS)도 노출
+  const activeBattleIds = new Set(activeBattles.map((battle) => battle.id));
+  const upcomingBattles = battles.filter((b) => b.status === 'YET');
+  const additionalProgressBattles = battles.filter(
+    (b) => b.status === 'PROGRESS' && !activeBattleIds.has(b.id),
+  );
+  const availableSource =
+    upcomingBattles.length > 0
+      ? upcomingBattles
+      : additionalProgressBattles.length > 0
+        ? additionalProgressBattles
+        : activeBattles;
+  const availableBattles = availableSource.slice(0, 3);
 
   // 남은 일수 계산
   const getDaysLeft = (endAt: string) => {
@@ -323,8 +336,10 @@ export default function HomeScreen() {
                   <ThemedText style={[styles.battleTitle, { color: isDark ? '#F1F5F9' : '#1E293B' }]}>
                     {battle.name}
                   </ThemedText>
-                  <View style={[styles.statusBadge, { backgroundColor: '#10B981' }]}>
-                    <ThemedText style={styles.statusText}>모집중</ThemedText>
+                  <View style={[styles.statusBadge, { backgroundColor: battle.status === 'YET' ? '#10B981' : '#6366F1' }]}>
+                    <ThemedText style={styles.statusText}>
+                      {battle.status === 'YET' ? '모집중' : '참여가능'}
+                    </ThemedText>
                   </View>
                 </View>
 

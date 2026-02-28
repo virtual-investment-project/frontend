@@ -6,11 +6,12 @@ import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navig
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useState, useCallback } from 'react';
+import apiClient from '../api/axiosInstance';
 import { getBattleById, getBattleTeamProfits, getBattleAccountProfits } from '../services/battleService';
 import { getTeamsByBattleId, getTeamMembers } from '../services/teamService';
 import { getCommentsByBattleId, createComment, deleteComment } from '../services/commentService';
 import { getBattleAccount, getPersonalAccountProfit, getBattleAccountProfit } from '../services/accountService';
-import { getRole } from '../utils/tokenStorage';
+import { getRole, getMyUserId } from '../utils/tokenStorage';
 import { BattleResponse, BattleStatus, TeamResponse, TeamMemberResponse, TeamProfitResponse, CommentResponse, AccountProfitResponse } from '../types/api';
 import JoinBattleModal from '../components/JoinBattleModal';
 
@@ -49,6 +50,16 @@ const formatDate = (isoDate: string): string => {
   return `${year}.${month}.${day}`;
 };
 
+const isUuidLike = (value: string): boolean => {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+};
+
+interface MyProfileResponse {
+  id?: string;
+  userId?: string;
+  nickname?: string;
+}
+
 export default function BattleDetailScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<BattleDetailRouteProp>();
@@ -74,22 +85,66 @@ export default function BattleDetailScreen() {
   const [isParticipating, setIsParticipating] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: number; nickname: string } | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [myNickname, setMyNickname] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<string | null>(null);
 
-  // 내 정보 로드 (JWT 인증 확인 → 개인계좌 API로 실제 userId(UUID) 가져오기)
+  // 내 정보 로드 (JWT sub 우선, 실패 시 계좌 API fallback)
   const fetchMyInfo = useCallback(async () => {
     console.log('[AUTH] fetchMyInfo 시작');
 
-    // Step 1: JWT에서 role만 추출 (userId는 API에서 가져옴)
+    // Step 1: JWT에서 role + userId(sub) 조회
     try {
-      const role = await getRole();
+      const [role, jwtUserId] = await Promise.all([getRole(), getMyUserId()]);
       setMyRole(role);
       console.log('[AUTH] JWT에서 role 추출:', role);
+
+      if (jwtUserId && isUuidLike(jwtUserId)) {
+        console.log('[AUTH] JWT에서 userId(sub) 추출 성공:', jwtUserId);
+        setMyUserId(jwtUserId);
+        return;
+      }
+
+      if (jwtUserId) {
+        console.warn('[AUTH] JWT userId(sub)가 UUID 형식이 아님, 계좌 API fallback 진행:', jwtUserId);
+      } else {
+        console.warn('[AUTH] JWT userId(sub) 없음, 계좌 API fallback 진행');
+      }
     } catch (e) {
-      console.warn('[AUTH] JWT role 추출 실패:', e);
+      console.warn('[AUTH] JWT 정보(role/userId) 추출 실패:', e);
     }
 
-    // Step 2: API로 실제 userId(UUID) 가져오기
+    // Step 2: 내 프로필에서 nickname + userId 조회 (fallback)
+    try {
+      const profileResponse = await apiClient.get<MyProfileResponse>('/api/mypage/profile');
+      const profile = profileResponse.data;
+
+      if (profile.nickname) {
+        setMyNickname(profile.nickname);
+        console.log('[AUTH] 프로필 조회 성공, nickname:', profile.nickname);
+      }
+
+      const profileUserId = typeof profile.userId === 'string'
+        ? profile.userId
+        : typeof profile.id === 'string'
+          ? profile.id
+          : null;
+
+      if (profileUserId && isUuidLike(profileUserId)) {
+        console.log('[AUTH] 프로필 조회 성공, userId(UUID):', profileUserId);
+        setMyUserId(profileUserId);
+        return;
+      }
+
+      if (profileUserId) {
+        console.warn('[AUTH] 프로필 userId가 UUID 형식이 아님:', profileUserId);
+      } else {
+        console.warn('[AUTH] 프로필 응답에 userId/id 없음');
+      }
+    } catch (e) {
+      console.warn('[AUTH] 프로필 API 실패:', e);
+    }
+
+    // Step 3: 계좌 API로 userId 조회 (fallback)
     try {
       console.log('[AUTH] 개인 계좌 API로 userId(UUID) 조회 시도');
       const profit = await getPersonalAccountProfit();
@@ -313,23 +368,24 @@ export default function BattleDetailScreen() {
   };
 
   // 댓글/대댓글 삭제 권한 판단
-  const canDeleteComment = (commentUserId: string): boolean => {
-    console.log('[DELETE] 권한 체크 시작 - myUserId:', myUserId, 'commentUserId:', commentUserId, 'myRole:', myRole);
+  const canDeleteComment = (commentUserId: string, commentNickname?: string): boolean => {
+    console.log('[DELETE] 권한 체크 시작 - myUserId:', myUserId, 'myNickname:', myNickname, 'commentUserId:', commentUserId, 'commentNickname:', commentNickname, 'myRole:', myRole);
 
-    if (!myUserId) {
-      console.warn('[DELETE] myUserId가 없습니다.');
-      return false;
-    }
-
-    // 1. ADMIN 권한 체크
+    // 1. ADMIN 권한 체크 (userId 없이도 가능)
     if (myRole === 'ADMIN') {
       console.log('[DELETE] ADMIN 권한으로 삭제 가능');
       return true;
     }
 
     // 2. 본인 댓글 체크
-    if (myUserId === commentUserId) {
+    if (myUserId && myUserId === commentUserId) {
       console.log('[DELETE] 본인 댓글이므로 삭제 가능');
+      return true;
+    }
+
+    // 2-1. userId 미확보 시 nickname으로 본인 여부 보조 체크
+    if (!myUserId && myNickname && commentNickname && myNickname === commentNickname) {
+      console.log('[DELETE] userId 미확보 - nickname 일치로 본인 댓글 삭제 허용');
       return true;
     }
 
@@ -337,9 +393,11 @@ export default function BattleDetailScreen() {
     console.log('[DELETE] 팀 리더 권한 체크 시작, teamMembers:', Object.keys(teamMembers));
     const isTeamLeader = Object.values(teamMembers).some((members) => {
       return members.some((m) => {
-        const isLeader = m.userId === myUserId && m.role === 'LEADER' && m.status === 'ACTIVE';
+        const isLeaderByUserId = !!myUserId && m.userId === myUserId;
+        const isLeaderByNickname = !myUserId && !!myNickname && m.userNickname === myNickname;
+        const isLeader = (isLeaderByUserId || isLeaderByNickname) && m.role === 'LEADER' && m.status === 'ACTIVE';
         if (isLeader) {
-          console.log('[DELETE] 팀 리더 권한 확인됨 - teamId:', m.id, 'userId:', m.userId);
+          console.log('[DELETE] 팀 리더 권한 확인됨 - teamId:', m.id, 'userId:', m.userId, 'nickname:', m.userNickname);
         }
         return isLeader;
       });
@@ -600,7 +658,12 @@ export default function BattleDetailScreen() {
           const profit = teamProfits.find(tp => tp.teamId === team.id);
           const profitMembers = profit?.members ?? [];
           const teamColor = TEAM_COLORS[teamIndex % TEAM_COLORS.length];
-          const myTeamMember = metaMembers.find((m) => m.userId === myUserId && m.status === 'ACTIVE');
+          const myTeamMember = metaMembers.find((m) => {
+            if (m.status !== 'ACTIVE') return false;
+            if (myUserId) return m.userId === myUserId;
+            if (myNickname) return m.userNickname === myNickname;
+            return false;
+          });
           const canManageTeam = !!myTeamMember && myTeamMember.role === 'LEADER';
           const teamReturnStyle = profit
             ? (profit.returnRate >= 0 ? styles.profitPositive : styles.profitNegative)
@@ -880,7 +943,7 @@ export default function BattleDetailScreen() {
                         <Text style={[styles.replyButtonText, dy.iconColor]}>답글</Text>
                       </TouchableOpacity>
                     )}
-                    {!comment.isDeleted && canDeleteComment(comment.userId) && (
+                    {!comment.isDeleted && canDeleteComment(comment.userId, comment.userNickname) && (
                       <TouchableOpacity
                         style={styles.deleteButton}
                         onPress={() => handleDeleteComment(comment.id)}>
@@ -906,7 +969,7 @@ export default function BattleDetailScreen() {
                           <Text style={[styles.commentContent, reply.isDeleted ? dy.iconColor : dy.textColor, styles.textFs13]}>
                             {reply.isDeleted ? '삭제된 댓글입니다.' : reply.content}
                           </Text>
-                          {!reply.isDeleted && canDeleteComment(reply.userId) && (
+                          {!reply.isDeleted && canDeleteComment(reply.userId, reply.userNickname) && (
                             <TouchableOpacity
                               style={[styles.deleteButton, styles.mt4]}
                               onPress={() => handleDeleteComment(reply.id)}>

@@ -12,6 +12,12 @@ const STORAGE_KEYS = {
   ROLE: 'role',
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const isUuidLike = (value: unknown): value is string => {
+  return typeof value === 'string' && UUID_REGEX.test(value);
+};
+
 /**
  * base64url 문자열 → UTF-8 문자열 (React Native 환경에서 atob 미지원 대응)
  */
@@ -37,7 +43,7 @@ const decodeBase64Url = (input: string): string => {
   try {
     // UTF-8 디코딩 (한글 등 다국어 지원)
     return decodeURIComponent(escape(output));
-  } catch (e) {
+  } catch {
     return output;
   }
 };
@@ -54,8 +60,11 @@ export const decodeJwtPayload = (token: string): { sub: string; role: string } |
       return null;
     }
     const decoded = JSON.parse(decodeBase64Url(parts[1]));
-    // 서버에 따라 sub / userId / id 등 다양한 클레임 이름 대응
-    const sub: string = decoded.sub ?? decoded.userId ?? decoded.id ?? '';
+    // 서버마다 userId 클레임 이름이 다를 수 있으므로 UUID 형식 클레임을 우선 채택
+    const rawCandidates: unknown[] = [decoded.userId, decoded.id, decoded.sub];
+    const uuidCandidate = rawCandidates.find(isUuidLike);
+    const firstStringCandidate = rawCandidates.find((value) => typeof value === 'string' && value.trim().length > 0) as string | undefined;
+    const sub: string = uuidCandidate ?? firstStringCandidate ?? '';
     const role: string = decoded.role ?? '';
     console.log('[AUTH] JWT 디코딩 성공:', { sub, role });
     return { sub, role };

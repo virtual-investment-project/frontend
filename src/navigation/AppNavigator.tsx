@@ -3,6 +3,7 @@ import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { RootStackParamList } from './types';
+import { navigationRef } from './navigationRef';
 
 // Navigators
 import TabNavigator from './TabNavigator';
@@ -22,7 +23,7 @@ export default function AppNavigator() {
     const colorScheme = useColorScheme();
 
     return (
-        <NavigationContainer theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <NavigationContainer ref={navigationRef} theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
             <Stack.Navigator initialRouteName="Main" screenOptions={{ headerShown: false }}>
                 <Stack.Screen name="Login" component={LoginScreen} />
                 <Stack.Screen name="AdditionalInfo" component={AdditionalInfoScreen} />
