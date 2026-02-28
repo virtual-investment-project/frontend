@@ -18,21 +18,15 @@ import {
   View,
 } from 'react-native';
 import { getAllBattles } from '../services/battleService';
-import { getTeamsByBattleId, getTeamMembers } from '../services/teamService';
-import { BattleListResponse, TeamMemberResponse } from '../types/api';
+import { getTopAccounts } from '../services/rankingsService';
+import { AccountRankingResponse, BattleListResponse } from '../types/api';
 import { getAccessToken } from '../utils/tokenStorage';
 import { getUnreadCount } from '../services/notificationService';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-// 개인 계좌 수익률 랭킹
-interface AccountRankingItem {
-  rank: number;
-  nickname: string;
-  teamName: string;
-  battleName: string;
-  rate: number;
-}
+// 개인 계좌 수익률 랭킹 표시용 타입
+type AccountRankingItem = AccountRankingResponse & { rank: number };
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -50,47 +44,18 @@ export default function HomeScreen() {
   // 배틀 데이터 로드
   const loadData = useCallback(async () => {
     try {
-      const battlesData = await getAllBattles();
+      const [battlesData, rankingData] = await Promise.all([
+        getAllBattles(),
+        getTopAccounts(3),
+      ]);
+
       setBattles(battlesData);
 
-      // 개인 계좌 수익률 TOP 3 추출
-      const allMembers: AccountRankingItem[] = [];
-
-      for (const battle of battlesData) {
-        if (battle.status !== 'PROGRESS') continue; // 진행중인 배틀만
-
-        try {
-          const teams = await getTeamsByBattleId(battle.id);
-
-          for (const team of teams) {
-            try {
-              const members = await getTeamMembers(team.id);
-
-              members.forEach((member: TeamMemberResponse) => {
-                allMembers.push({
-                  rank: 0,
-                  nickname: member.userNickname,
-                  teamName: team.name,
-                  battleName: battle.name,
-                  rate: member.rate,
-                });
-              });
-            } catch (err) {
-              console.error(`팀 ${team.id} 멤버 조회 오류:`, err);
-            }
-          }
-        } catch (err) {
-          console.error(`배틀 ${battle.id} 팀 조회 오류:`, err);
-        }
-      }
-
-      // 수익률 기준 정렬 후 TOP 3
-      const sorted = allMembers
-        .sort((a, b) => b.rate - a.rate)
-        .slice(0, 3)
-        .map((item, index) => ({ ...item, rank: index + 1 }));
-
-      setTopAccounts(sorted);
+      const ranked: AccountRankingItem[] = rankingData.map((item, index) => ({
+        ...item,
+        rank: index + 1,
+      }));
+      setTopAccounts(ranked);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -141,10 +106,10 @@ export default function HomeScreen() {
     }, []),
   );
 
-  // 진행중인 배틀만 필터링 (최대 3개)
+  // 진행중인 배틀만 필터링 (최대 2개)
   const activeBattles = battles
     .filter((b) => b.status === 'PROGRESS')
-    .slice(0, 3);
+    .slice(0, 2);
 
   // 참여 가능한 배틀 (YET 상태, 최대 3개)
   const availableBattles = battles
@@ -244,7 +209,7 @@ export default function HomeScreen() {
           ) : (
             topAccounts.map((item) => (
               <View
-                key={`${item.nickname}-${item.rank}`}
+                key={`${item.accountId}-${item.rank}`}
                 style={[styles.rankCard, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
                 <View style={styles.rankLeft}>
                   <View
@@ -258,16 +223,16 @@ export default function HomeScreen() {
                   </View>
                   <View style={styles.rankInfo}>
                     <ThemedText style={[styles.teamNameText, { color: isDark ? '#F1F5F9' : '#1E293B' }]}>
-                      {item.nickname}
+                      {item.userName}
                     </ThemedText>
                     <ThemedText style={[styles.battleNameText, { color: colors.icon }]}>
-                      {item.teamName} · {item.battleName}
+                      {item.accountName}
                     </ThemedText>
                   </View>
                 </View>
-                <View style={[styles.rateContainer, { backgroundColor: item.rate >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)' }]}>
-                  <ThemedText style={[styles.rateText, { color: item.rate >= 0 ? '#10B981' : '#EF4444' }]}>
-                    {formatRate(item.rate)}
+                <View style={[styles.rateContainer, { backgroundColor: item.returnRate >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)' }]}>
+                  <ThemedText style={[styles.rateText, { color: item.returnRate >= 0 ? '#10B981' : '#EF4444' }]}>
+                    {formatRate(item.returnRate)}
                   </ThemedText>
                 </View>
               </View>

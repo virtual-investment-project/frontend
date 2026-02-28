@@ -163,9 +163,11 @@ export default function CreateBattleScreen() {
         teamCount: battleData.teamCount,
       };
 
-      await createBattle(requestData);
+      const response = await createBattle(requestData);
 
-      generateInviteCode();
+      // 백엔드에서 생성된 배틀 정보를 받아옴 (초대 코드는 팀 생성 시 발급되므로 여기서는 배틀 ID만 저장)
+      // 배틀 생성 직후에는 아직 팀이 없으므로 초대 코드를 보여줄 수 없음
+      // 사용자가 배틀 상세 페이지로 이동해서 팀을 만들면 그때 초대 코드가 발급됨
       setStep(4);
     } catch (error: any) {
 
@@ -598,7 +600,7 @@ export default function CreateBattleScreen() {
           </View>
         )}
 
-        {/* Step 4: 초대 코드 */}
+        {/* Step 4: 완료 화면 */}
         {step === 4 && (
           <View style={styles.stepContent}>
             <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
@@ -610,39 +612,13 @@ export default function CreateBattleScreen() {
                 대결 생성 완료!
               </Text>
               <Text style={[styles.successDescription, { color: colors.icon }]}>
-                아래 초대 코드를 친구들에게 공유하세요
+                대결이 성공적으로 생성되었습니다.
               </Text>
 
-              <View style={[styles.inviteCodeContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
-                <Text style={[styles.inviteCode, { color: '#6366F1' }]}>
-                  {inviteCode}
-                </Text>
-              </View>
-
-              <View style={styles.shareButtons}>
-                <TouchableOpacity
-                  style={[styles.shareButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                  onPress={copyInviteCode}>
-                  <IconSymbol size={20} name="doc.on.doc.fill" color="#6366F1" />
-                  <Text style={[styles.shareButtonText, { color: '#6366F1' }]}>
-                    복사
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.shareButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
-                  onPress={shareInviteCode}>
-                  <IconSymbol size={20} name="square.and.arrow.up.fill" color="#6366F1" />
-                  <Text style={[styles.shareButtonText, { color: '#6366F1' }]}>
-                    공유
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={[styles.infoBox, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F1F5F9' }]}>
+              <View style={[styles.infoBox, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F1F5F9', marginTop: 20 }]}>
                 <IconSymbol size={20} name="info.circle.fill" color="#6366F1" />
                 <Text style={[styles.infoText, { color: colors.icon }]}>
-                  초대 코드는 대결 시작 전까지만 사용할 수 있습니다. 코드를 잘 보관하세요!
+                  대결 상세 페이지에서 팀을 생성하면 친구들을 초대할 수 있는 초대 코드가 발급됩니다.
                 </Text>
               </View>
             </View>

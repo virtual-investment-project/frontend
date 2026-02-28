@@ -11,6 +11,7 @@ import TabNavigator from './TabNavigator';
 import LoginScreen from '../screens/LoginScreen';
 import AdditionalInfoScreen from '../screens/AdditionalInfoScreen';
 import BattleDetailScreen from '../screens/BattleDetailScreen';
+import TeamManageScreen from '../screens/TeamManageScreen';
 import CreateBattleScreen from '../screens/CreateBattleScreen';
 import MyScreen from '../screens/MyScreen';
 import NotificationScreen from '../screens/NotificationScreen';
@@ -27,6 +28,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="AdditionalInfo" component={AdditionalInfoScreen} />
                 <Stack.Screen name="Main" component={TabNavigator} />
                 <Stack.Screen name="BattleDetail" component={BattleDetailScreen} />
+                <Stack.Screen name="TeamManage" component={TeamManageScreen} />
                 <Stack.Screen name="CreateBattle" component={CreateBattleScreen} />
                 <Stack.Screen name="My" component={MyScreen} />
                 <Stack.Screen name="Notifications" component={NotificationScreen} />

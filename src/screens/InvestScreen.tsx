@@ -4,15 +4,19 @@ import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { Alert, ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Stock, searchSymbols } from '../types/tradingview';
 import { toggleFavorite } from '../services/favoriteService';
 import { useFavoritesContext, FavoriteWithPrice } from '../contexts/FavoritesContext';
 import { Account } from '../types/account';
-import { getAllMyAccounts, getAccountStocks } from '../services/accountService';
+import { getAllMyAccounts, getAccountStocks, getPersonalAccount, getBattleAccount } from '../services/accountService';
+import { getAllBattles } from '../services/battleService';
 import { StockHoldingResponse } from '../types/api';
 import { createOrder, getOrdersByAccount, cancelOrder, OrderResponse } from '../services/orderService';
+import { getAccountProfitById } from '../services/accountService';
+import { getAccountHistory } from '../services/historyService';
+import { AccountProfitResponse, AccountHistoryResponse } from '../types/api';
 
 interface StockWithPrice extends Stock {
   currentPrice?: number;
@@ -36,6 +40,10 @@ interface Order {
 export default function InvestScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const isDark = colorScheme === 'dark';
+  const cardBg = { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' };
+  const pageBg = { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' };
+  const inputBg = { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' };
   const { favorites, refreshFavorites } = useFavoritesContext();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,10 +62,12 @@ export default function InvestScreen() {
 
   // 포트폴리오 탭용 선택된 계좌 상태 및 보유 종목
   const [portfolioSelectedAccount, setPortfolioSelectedAccount] = useState<Account | null>(null);
-  const [portfolioHoldings, setPortfolioHoldings] = useState<StockHoldingResponse[]>([]);
+  const [portfolioProfit, setPortfolioProfit] = useState<AccountProfitResponse | null>(null);
+  const [portfolioHistory, setPortfolioHistory] = useState<AccountHistoryResponse[]>([]);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
-  const [portfolioPendingBuyAmount, setPortfolioPendingBuyAmount] = useState(0); // 매수 예약금 (현금 동결)
-  const [accountsRefreshing, setAccountsRefreshing] = useState(false); // pull-to-refresh
+  const [_portfolioHoldings, setPortfolioHoldings] = useState<StockHoldingResponse[]>([]);
+  const [_portfolioPendingBuyAmount, setPortfolioPendingBuyAmount] = useState(0);
+  const [accountsRefreshing, setAccountsRefreshing] = useState(false);
 
   // 투자 비율 관련 상태
   const [investmentRatio, setInvestmentRatio] = useState(0); // 0 ~ 100%
@@ -74,24 +84,52 @@ export default function InvestScreen() {
   useFocusEffect(
     useCallback(() => {
       const fetchAccounts = async () => {
+        const allAccounts: Account[] = [];
+
+        // 1. 개인 계좌 조회
         try {
-          const data = await getAllMyAccounts();
-          const allAccounts: Account[] = data.map(acc => ({
-            id: acc.id,
-            accountName: acc.name,
-            balance: acc.balance,
-            totalAsset: acc.totalAsset,
-          }));
-          setAccounts(allAccounts);
-          if (allAccounts.length > 0 && !selectedAccount) {
-            setSelectedAccount(allAccounts[0]);
+          const data = await getPersonalAccount();
+          allAccounts.push({
+            id: data.id,
+            accountName: data.name,
+            balance: data.balance,
+            totalAsset: data.totalAsset,
+          });
+        } catch {
+          console.log('개인 계좌 없음 또는 조회 실패');
+        }
+
+        // 2. 배틀 계좌 조회 (참여 중인 배틀들)
+        try {
+          const battles = await getAllBattles();
+          for (const battle of battles) {
+            if (battle.status === 'END') continue; // 종료된 배틀 제외
+            try {
+              const data = await getBattleAccount(battle.id);
+              if (data) {
+                allAccounts.push({
+                  id: data.id,
+                  accountName: data.name,
+                  balance: data.balance,
+                  totalAsset: data.totalAsset,
+                });
+              }
+            } catch {
+              // 해당 배틀에 참여하지 않은 경우 무시
+            }
           }
         } catch (error) {
           console.error('계좌 목록 조회 실패:', error);
         }
+
+        setAccounts(allAccounts);
+        if (allAccounts.length > 0 && !selectedAccount) {
+          setSelectedAccount(allAccounts[0]);
+        }
       };
 
       fetchAccounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
   );
 
@@ -118,11 +156,7 @@ export default function InvestScreen() {
     }
   };
 
-
   // 주문 내역 상태
-
-
-  // 임시 주문 내역
   const [orders, setOrders] = useState<Order[]>([]);
 
   // 주문 목록 조회
@@ -188,8 +222,8 @@ export default function InvestScreen() {
         const holdings = await getAccountStocks(portfolioSelectedAccount.id);
         setPortfolioHoldings(holdings);
         // 매수 예약금 계산
-        const orders = await getOrdersByAccount(portfolioSelectedAccount.id);
-        const pendingBuy = orders
+        const pendingOrders = await getOrdersByAccount(portfolioSelectedAccount.id);
+        const pendingBuy = pendingOrders
           .filter(o => o.orderType === 'BUY' && o.status === 'PENDING')
           .reduce((sum, o) => sum + parseFloat(o.totalAmount), 0);
         setPortfolioPendingBuyAmount(pendingBuy);
@@ -218,10 +252,34 @@ export default function InvestScreen() {
 
     const intervalId = setInterval(poll, 5000); // 5초마다
     return () => clearInterval(intervalId);    // 상세보기 닫히면 정리
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [portfolioSelectedAccount?.id]);           // id 기준으로만 재등록
 
 
-  const userBalance = 10000000; // 사용 가능 금액
+  // 포트폴리오 계좌 선택 시 수익 및 거래 내역 조회
+  useEffect(() => {
+    if (!portfolioSelectedAccount) {
+      setPortfolioProfit(null);
+      setPortfolioHistory([]);
+      return;
+    }
+    const fetchPortfolioData = async () => {
+      setPortfolioLoading(true);
+      try {
+        const [profit, history] = await Promise.all([
+          getAccountProfitById(portfolioSelectedAccount.id),
+          getAccountHistory(portfolioSelectedAccount.id),
+        ]);
+        setPortfolioProfit(profit);
+        setPortfolioHistory(history);
+      } catch (error) {
+        console.error('포트폴리오 데이터 조회 실패:', error);
+      } finally {
+        setPortfolioLoading(false);
+      }
+    };
+    fetchPortfolioData();
+  }, [portfolioSelectedAccount]);
 
   // 종목 선택 — Binance API로 실시간 가격 조회
   const handleStockSelect = async (stock: Stock) => {
@@ -438,34 +496,24 @@ export default function InvestScreen() {
     }
   };
 
-  const handleSetCurrentPrice = () => {
-    if (selectedStock && selectedStock.currentPrice) {
-      setOrderPrice(selectedStock.currentPrice.toString());
-    }
-  };
-
-  const handleSetPercentPrice = (percent: number) => {
-    if (selectedStock && selectedStock.currentPrice) {
-      const newPrice = selectedStock.currentPrice * (1 + percent / 100);
-      setOrderPrice(newPrice.toFixed(2));
-    }
-  };
-
   // 즐겨찾기 카드 렌더링
-  const renderFavoriteCard = (fav: FavoriteWithPrice) => (
+  const renderFavoriteCard = (fav: FavoriteWithPrice) => {
+    const favCardBorder = {
+      borderColor: selectedStock?.symbol === fav.symbol ? '#6366F1' : 'transparent' as const,
+      borderWidth: selectedStock?.symbol === fav.symbol ? 2 : 0,
+    };
+    const changeColor = { color: fav.change >= 0 ? '#10B981' : '#EF4444' };
+    return (
     <TouchableOpacity
       key={fav.symbol}
       style={[
         styles.stockCard,
         styles.shadow,
-        {
-          backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
-          borderColor: selectedStock?.symbol === fav.symbol ? '#6366F1' : 'transparent',
-          borderWidth: selectedStock?.symbol === fav.symbol ? 2 : 0,
-        },
+        cardBg,
+        favCardBorder,
       ]}
       onPress={() => handleFavoriteSelect(fav)}>
-      <View style={{ flex: 1 }}>
+      <View style={styles.flex1}>
         <Text style={[styles.stockSymbol, { color: colors.text }]}>
           {fav.symbol.includes(':') ? fav.symbol.split(':')[1] : fav.symbol}
         </Text>
@@ -474,7 +522,7 @@ export default function InvestScreen() {
         </Text>
         <Text style={[styles.marketCap, { color: colors.icon }]}>시가총액: {fav.marketCap}</Text>
       </View>
-      <View style={{ alignItems: 'flex-end' }}>
+      <View style={styles.alignItemsEnd}>
         <Text style={[styles.stockPrice, { color: colors.text }]}>${fav.currentPrice.toFixed(2)}</Text>
         <View style={styles.stockChangeRow}>
           <IconSymbol
@@ -482,7 +530,7 @@ export default function InvestScreen() {
             name={fav.change >= 0 ? 'arrow.up' : 'arrow.down'}
             color={fav.change >= 0 ? '#10B981' : '#EF4444'}
           />
-          <Text style={[styles.stockChange, { color: fav.change >= 0 ? '#10B981' : '#EF4444' }]}>
+          <Text style={[styles.stockChange, changeColor]}>
             {fav.change >= 0 ? '+' : ''}
             {fav.change.toFixed(2)} ({fav.changePercent >= 0 ? '+' : ''}
             {fav.changePercent.toFixed(2)}%)
@@ -495,7 +543,8 @@ export default function InvestScreen() {
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
-  );
+    );
+  };
 
   // 검색 결과 렌더링
   const renderSearchResult = (stock: Stock) => {
@@ -506,12 +555,10 @@ export default function InvestScreen() {
         key={stock.symbol}
         style={[
           styles.searchResultCard,
-          {
-            backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
-          },
+          cardBg,
         ]}
         onPress={() => handleStockSelect(stock)}>
-        <View style={{ flex: 1 }}>
+        <View style={styles.flex1}>
           <Text style={[styles.stockSymbol, { color: colors.text }]}>
             {stock.symbol.includes(':') ? stock.symbol.split(':')[1] : stock.symbol}
           </Text>
@@ -533,9 +580,9 @@ export default function InvestScreen() {
   };
 
   const renderSearchTab = () => (
-    <View style={{ flex: 1 }}>
+    <View style={styles.flex1}>
       {/* 검색 */}
-      <View style={[styles.searchContainer, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+      <View style={[styles.searchContainer, cardBg]}>
         <IconSymbol size={20} name="magnifyingglass" color={colors.icon} />
         <TextInput
           style={[styles.searchInput, { color: colors.text }]}
@@ -553,7 +600,7 @@ export default function InvestScreen() {
 
       {/* 검색 결과 */}
       {showSearchResults && searchResults.length > 0 && (
-        <View style={[styles.searchResultsContainer, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={[styles.searchResultsContainer, cardBg]}>
           <Text style={[styles.searchResultsTitle, { color: colors.icon }]}>
             검색 결과 ({searchResults.length})
           </Text>
@@ -565,7 +612,7 @@ export default function InvestScreen() {
 
       {/* 검색 결과가 없을 때 */}
       {showSearchResults && searchResults.length === 0 && (
-        <View style={[styles.searchResultsContainer, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={[styles.searchResultsContainer, cardBg]}>
           <View style={styles.noResultsContainer}>
             <IconSymbol size={40} name="magnifyingglass" color={colors.icon} />
             <Text style={[styles.noResultsText, { color: colors.icon }]}>
@@ -590,14 +637,14 @@ export default function InvestScreen() {
               </Text>
             </View>
           ) : (
-            <View style={{ flex: 1 }}>
+            <View style={styles.flex1}>
               <View style={styles.sectionHeader}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>즐겨찾기</Text>
                 <Text style={[styles.sectionCount, { color: colors.icon }]}>
                   {favorites.length}개
                 </Text>
               </View>
-              <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+              <ScrollView style={styles.flex1} showsVerticalScrollIndicator={false}>
                 <View style={styles.stocksList}>
                   {favorites.map(fav => renderFavoriteCard(fav))}
                 </View>
@@ -618,7 +665,7 @@ export default function InvestScreen() {
     // 계좌 목록 렌더링
     if (!portfolioSelectedAccount) {
       return (
-        <View style={{ flex: 1 }}>
+        <View style={styles.flex1}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>내 계좌</Text>
             <Text style={[styles.sectionCount, { color: colors.icon }]}>
@@ -627,7 +674,7 @@ export default function InvestScreen() {
           </View>
 
           <ScrollView
-            style={{ flex: 1 }}
+            style={styles.flex1}
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl
@@ -655,19 +702,19 @@ export default function InvestScreen() {
             {accounts.map((account) => (
               <TouchableOpacity
                 key={account.id}
-                style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}
+                style={[styles.card, styles.shadow, cardBg]}
                 onPress={async () => {
                   setPortfolioSelectedAccount(account);
                   setPortfolioHoldings([]);
                   setPortfolioPendingBuyAmount(0);
                   setPortfolioLoading(true);
                   try {
-                    const [holdings, orders] = await Promise.all([
+                    const [holdings, accountOrders] = await Promise.all([
                       getAccountStocks(account.id),
                       getOrdersByAccount(account.id),
                     ]);
                     setPortfolioHoldings(holdings);
-                    const pendingBuy = orders
+                    const pendingBuy = accountOrders
                       .filter(o => o.orderType === 'BUY' && o.status === 'PENDING')
                       .reduce((sum, o) => sum + parseFloat(o.totalAmount), 0);
                     setPortfolioPendingBuyAmount(pendingBuy);
@@ -704,128 +751,95 @@ export default function InvestScreen() {
     }
 
     // 백엔드 balance = 사용가능 현금 (예약금 이미 차감)
-    // 실제 업 = 사용가능현금 + 예약금 + 주식평가
-    const totalStockValue = portfolioHoldings.reduce((sum, h) => {
-      const price = parseFloat(h.currentPrice ?? h.averagePrice ?? '0');
-      const qty = parseFloat(h.quantity);
-      return sum + price * qty;
-    }, 0);
-    const totalHoldingValue = portfolioSelectedAccount.balance + portfolioPendingBuyAmount + totalStockValue;
-
     return (
-      <View style={{ flex: 1 }}>
+      <View style={styles.flex1}>
         {/* 뒤로가기 버튼 */}
         <TouchableOpacity
-          style={[styles.backButton, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}
+          style={[styles.backButton, cardBg]}
           onPress={handleBackToAccounts}>
           <IconSymbol size={20} name="chevron.left" color={colors.icon} />
           <Text style={[styles.backButtonText, { color: colors.text }]}>계좌 목록</Text>
         </TouchableOpacity>
 
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-          {/* 계좌 요약 */}
-          <View style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <ScrollView style={styles.flex1} showsVerticalScrollIndicator={false}>
+          {/* 계좌 수익 정보 */}
+          <View style={[styles.card, styles.shadow, cardBg]}>
             <Text style={[styles.accountDetailName, { color: colors.text }]}>{portfolioSelectedAccount.accountName}</Text>
-            <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 16 }]}>총 평가금액</Text>
+            <Text style={[styles.sectionTitle, styles.marginTop16, { color: colors.text }]}>총 평가금액</Text>
             <Text style={[styles.totalValue, { color: colors.text }]}>
-              ${totalHoldingValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₩{(portfolioProfit?.totalAsset ?? portfolioSelectedAccount.totalAsset).toLocaleString()}
             </Text>
-            {/* 현금 사용가능 */}
-            <View style={styles.accountCardRow}>
-              <Text style={[styles.accountCardLabel, { color: colors.icon }]}>예수금 (사용가능)</Text>
-              <Text style={[styles.accountCardValue, { color: colors.text }]}>${portfolioSelectedAccount.balance.toLocaleString()}</Text>
-            </View>
-            {/* 매수 예약금 (있을 때만 표시) */}
-            {portfolioPendingBuyAmount > 0 && (
-              <View style={styles.accountCardRow}>
-                <Text style={[styles.accountCardLabel, { color: '#F59E0B' }]}>⏳ 매수 예약금</Text>
-                <Text style={[styles.accountCardValue, { color: '#F59E0B' }]}>
-                  ${portfolioPendingBuyAmount.toFixed(2)} (체결 시 주식 전환)
-                </Text>
-              </View>
+            {portfolioProfit && (
+              <>
+                <View style={styles.profitRow}>
+                  <Text style={[styles.profitLabel, { color: colors.icon }]}>평가손익</Text>
+                  <Text style={[styles.profitValue, portfolioProfit.returnAmount >= 0 ? styles.colorGreen : styles.colorRed]}>
+                    {portfolioProfit.returnAmount >= 0 ? '+' : ''}₩{portfolioProfit.returnAmount.toLocaleString()}{' '}
+                    ({portfolioProfit.returnRate >= 0 ? '+' : ''}{portfolioProfit.returnRate.toFixed(2)}%)
+                  </Text>
+                </View>
+                <View style={styles.profitRow}>
+                  <Text style={[styles.profitLabel, { color: colors.icon }]}>시드머니</Text>
+                  <Text style={[styles.profitValue, { color: colors.icon }]}>₩{portfolioProfit.seedMoney.toLocaleString()}</Text>
+                </View>
+              </>
             )}
-            {/* 주식 평가액 */}
-            <View style={styles.accountCardRow}>
-              <Text style={[styles.accountCardLabel, { color: colors.icon }]}>보유주식 평가액</Text>
-              <Text style={[styles.accountCardValue, { color: colors.text }]}>${totalStockValue.toFixed(2)}</Text>
-            </View>
           </View>
 
-          {/* 보유 종목 목록 */}
+          {/* 거래 내역 */}
+          <View style={[styles.sectionHeader, styles.marginTop8]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>거래 내역</Text>
+            <Text style={[styles.sectionCount, { color: colors.icon }]}>{portfolioHistory.length}건</Text>
+          </View>
+
           {portfolioLoading ? (
-            <View style={{ alignItems: 'center', padding: 32 }}>
-              <ActivityIndicator size="large" color="#6366F1" />
-              <Text style={[{ color: colors.icon, marginTop: 8 }]}>보유 종목 조회 중...</Text>
+            <View style={[styles.card, styles.shadow, cardBg, styles.centerPad24]}>
+              <Text style={[styles.detailLabel, { color: colors.icon }]}>불러오는 중...</Text>
             </View>
-          ) : portfolioHoldings.length === 0 ? (
-            <View style={styles.emptyState}>
-              <IconSymbol size={48} name="tray" color={colors.icon} />
-              <Text style={[styles.emptyText, { color: colors.icon }]}>보유 종목이 없습니다</Text>
+          ) : portfolioHistory.length === 0 ? (
+            <View style={[styles.card, styles.shadow, cardBg, styles.centerPad24]}>
+              <Text style={[styles.detailLabel, { color: colors.icon }]}>거래 내역이 없습니다</Text>
             </View>
           ) : (
-            portfolioHoldings.map((item) => {
-              const avgPrice = parseFloat(item.averagePrice);
-              const curPrice = parseFloat(item.currentPrice ?? item.averagePrice ?? '0');
-              const qty = parseFloat(item.quantity);
-              const currentVal = curPrice * qty;
-              const profitLoss = (curPrice - avgPrice) * qty;
-              const profitPercent = avgPrice > 0 ? ((curPrice - avgPrice) / avgPrice) * 100 : 0;
-
+            portfolioHistory.map((item) => {
+              const tradeTypeLabel: Record<string, string> = {
+                BUY: '매수',
+                SELL: '매도',
+                SEED_MONEY: '시드머니',
+                PROFIT_SNAPSHOT: '수익 스냅샷',
+              };
+              const isPositive = item.tradeType === 'SELL' || item.tradeType === 'SEED_MONEY';
+              const amountColor = isPositive ? '#10B981' : (item.tradeType === 'BUY' ? '#EF4444' : colors.text);
+              const tradeTypeBg = {
+                backgroundColor:
+                  item.tradeType === 'BUY' ? '#EF4444' :
+                  item.tradeType === 'SELL' ? '#10B981' : '#6366F1',
+              };
               return (
                 <View
                   key={item.id}
-                  style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-                  <View style={styles.portfolioHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.stockSymbol, { color: colors.text }]}>{item.stockCode}</Text>
-                      <Text style={[styles.stockName, { color: colors.icon }]}>{item.stockName}</Text>
+                  style={[styles.card, styles.shadow, cardBg]}>
+                  <View style={styles.orderHeader}>
+                    <View style={styles.flex1}>
+                      <Text style={[styles.stockSymbol, { color: colors.text }]}>{item.description}</Text>
+                      <Text style={[styles.orderTime, { color: colors.icon }]}>
+                        {new Date(item.createdAt).toLocaleString('ko-KR')}
+                      </Text>
                     </View>
-                    <TouchableOpacity
-                      style={[styles.tradeButton, { backgroundColor: '#EF4444' }]}
-                      onPress={() => {
-                        // 계좌 고정: portfolioSelectedAccount를 selectedAccount로 설정
-                        if (portfolioSelectedAccount) {
-                          setSelectedAccount(portfolioSelectedAccount);
-                        }
-                        setSelectedStock({
-                          symbol: item.stockCode,
-                          name: item.stockName,
-                          koreanName: item.stockName,
-                          currentPrice: curPrice,
-                        });
-                        // 현재가 자동 입력
-                        setOrderPrice(curPrice.toFixed(2));
-                        setOrderType('sell');
-                        setReturnToPortfolio(true);  // 전 탭 이동 대신 포트폴리오 복귀 모드
-                        setAccountLocked(true);      // 계좌 변경 불가
-                        // 탑 전환 없이 바텐시트만 표시 (selectedStock이 설정되면 렌더링 조건 충족)
-                      }}>
-                      <Text style={styles.tradeButtonText}>매도</Text>
-                    </TouchableOpacity>
+                    <View style={[styles.orderTypeBadge, tradeTypeBg]}>
+                      <Text style={styles.orderTypeText}>{tradeTypeLabel[item.tradeType] ?? item.tradeType}</Text>
+                    </View>
                   </View>
-
                   <View style={styles.portfolioDetail}>
                     <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: colors.icon }]}>보유수량</Text>
-                      <Text style={[styles.detailValue, { color: colors.text }]}>{qty.toFixed(4)}주</Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: colors.icon }]}>평균단가</Text>
-                      <Text style={[styles.detailValue, { color: colors.text }]}>${avgPrice.toFixed(2)}</Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: colors.icon }]}>현재가</Text>
-                      <Text style={[styles.detailValue, { color: colors.text }]}>${curPrice.toFixed(2)}</Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: colors.icon }]}>평가금액</Text>
-                      <Text style={[styles.detailValue, { color: colors.text }]}>${currentVal.toFixed(2)}</Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: colors.icon }]}>평가손익</Text>
-                      <Text style={[styles.detailValue, { color: profitLoss >= 0 ? '#10B981' : '#EF4444' }]}>
-                        {profitLoss >= 0 ? '+' : ''}${profitLoss.toFixed(2)} ({profitPercent >= 0 ? '+' : ''}{profitPercent.toFixed(2)}%)
+                      <Text style={[styles.detailLabel, { color: colors.icon }]}>거래 금액</Text>
+                      <Text style={[styles.detailValue, { color: amountColor }]}>
+                        {isPositive ? '+' : '-'}₩{Math.abs(item.amount).toLocaleString()}
                       </Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: colors.icon }]}>잔액 스냅샷</Text>
+                      <Text style={[styles.detailValue, { color: colors.text }]}>₩{item.balanceSnapshot.toLocaleString()}</Text>
                     </View>
                   </View>
                 </View>
@@ -839,14 +853,17 @@ export default function InvestScreen() {
 
 
   const renderOrdersTab = () => (
-    <View style={{ flex: 1 }}>
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-        {orders.map((order) => (
+    <View style={styles.flex1}>
+      <ScrollView style={styles.flex1} showsVerticalScrollIndicator={false}>
+        {orders.map((order) => {
+          const statusBg = { backgroundColor: order.status === 'filled' ? '#10B981' : order.status === 'cancelled' ? '#94A3B8' : '#F59E0B' };
+          const typeBg = { backgroundColor: order.type === 'buy' ? '#10B981' : '#EF4444' };
+          return (
           <View
             key={order.id}
-            style={[styles.card, styles.shadow, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+            style={[styles.card, styles.shadow, cardBg]}>
             <View style={styles.orderHeader}>
-              <View style={{ flex: 1 }}>
+              <View style={styles.flex1}>
                 <View style={styles.orderTitleRow}>
                   <Text style={[styles.stockSymbol, { color: colors.text }]}>
                     {order.stock.symbol.includes(':') ? order.stock.symbol.split(':')[1] : order.stock.symbol}
@@ -854,7 +871,7 @@ export default function InvestScreen() {
                   <View
                     style={[
                       styles.orderStatusBadge,
-                      { backgroundColor: order.status === 'filled' ? '#10B981' : order.status === 'cancelled' ? '#94A3B8' : '#F59E0B' },
+                      statusBg,
                     ]}>
                     <Text style={styles.orderStatusText}>
                       {order.status === 'filled' ? '체결' : order.status === 'cancelled' ? '취소' : '예약'}
@@ -866,7 +883,7 @@ export default function InvestScreen() {
                 </Text>
               </View>
               <View
-                style={[styles.orderTypeBadge, { backgroundColor: order.type === 'buy' ? '#10B981' : '#EF4444' }]}>
+                style={[styles.orderTypeBadge, typeBg]}>
                 <Text style={styles.orderTypeText}>{order.type === 'buy' ? '매수' : '매도'}</Text>
               </View>
             </View>
@@ -882,7 +899,7 @@ export default function InvestScreen() {
               </View>
               <View style={styles.detailRow}>
                 <Text style={[styles.detailLabel, { color: colors.icon }]}>주문금액</Text>
-                <Text style={[styles.detailValue, { color: colors.text, fontWeight: '700' }]}>
+                <Text style={[styles.detailValue, { color: colors.text }, styles.fontBold]}>
                   ₩{order.totalAmount.toLocaleString()}
                 </Text>
               </View>
@@ -890,7 +907,7 @@ export default function InvestScreen() {
 
             {order.status === 'pending' && (
               <TouchableOpacity
-                style={[styles.cancelButton, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}
+                style={[styles.cancelButton, pageBg]}
                 onPress={async () => {
                   Alert.alert('주문 취소', '정말 이 주문을 취소하시겠습니까?', [
                     { text: '아니오', style: 'cancel' },
@@ -910,11 +927,12 @@ export default function InvestScreen() {
                     },
                   ]);
                 }}>
-                <Text style={[styles.cancelButtonText, { color: '#EF4444' }]}>주문 취소</Text>
+                <Text style={[styles.cancelButtonText, styles.colorRed]}>주문 취소</Text>
               </TouchableOpacity>
             )}
           </View>
-        ))}
+          );
+        })}
 
         {orders.length === 0 && (
           <View style={styles.emptyState}>
@@ -926,38 +944,40 @@ export default function InvestScreen() {
     </View>
   );
 
+  const buyBtnBg = { backgroundColor: orderType === 'buy' ? '#10B981' : pageBg.backgroundColor };
+  const sellBtnBg = { backgroundColor: orderType === 'sell' ? '#EF4444' : pageBg.backgroundColor };
+  const buyBtnText = { color: orderType === 'buy' ? '#FFFFFF' : colors.text };
+  const sellBtnText = { color: orderType === 'sell' ? '#FFFFFF' : colors.text };
+  const submitBtnBg = { backgroundColor: orderType === 'buy' ? '#10B981' : '#EF4444' };
+
   return (
-    <View style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+    <View style={[styles.container, pageBg]}>
       {/* 고정 헤더 */}
-      <View style={[styles.fixedHeader, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+      <View style={[styles.fixedHeader, pageBg]}>
         <View style={styles.header}>
           <ThemedText type="title" style={styles.title}>투자하기</ThemedText>
-          <View style={[styles.balanceCard, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
-            <Text style={[styles.balanceLabel, { color: colors.icon }]}>사용 가능 금액</Text>
-            <Text style={[styles.balanceAmount, { color: '#6366F1' }]}>₩{userBalance.toLocaleString()}</Text>
-          </View>
         </View>
 
         {/* 탭 버튼 */}
-        <View style={[styles.tabContainer, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={[styles.tabContainer, cardBg]}>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'search' && styles.activeTab]}
             onPress={() => setActiveTab('search')}>
-            <Text style={[styles.tabText, { color: activeTab === 'search' ? '#6366F1' : colors.icon }]}>
+            <Text style={[styles.tabText, activeTab === 'search' ? styles.tabActive : { color: colors.icon }]}>
               종목검색
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'portfolio' && styles.activeTab]}
             onPress={() => setActiveTab('portfolio')}>
-            <Text style={[styles.tabText, { color: activeTab === 'portfolio' ? '#6366F1' : colors.icon }]}>
+            <Text style={[styles.tabText, activeTab === 'portfolio' ? styles.tabActive : { color: colors.icon }]}>
               포트폴리오
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'orders' && styles.activeTab]}
             onPress={() => setActiveTab('orders')}>
-            <Text style={[styles.tabText, { color: activeTab === 'orders' ? '#6366F1' : colors.icon }]}>
+            <Text style={[styles.tabText, activeTab === 'orders' ? styles.tabActive : { color: colors.icon }]}>
               주문내역
             </Text>
           </TouchableOpacity>
@@ -973,9 +993,9 @@ export default function InvestScreen() {
 
       {/* 주문 패널 (선택된 종목이 있을 때만 표시: 종목 검색 or 포트폴리오 매도) */}
       {selectedStock && (activeTab === 'search' || returnToPortfolio) && (
-        <View style={[styles.orderPanel, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+        <View style={[styles.orderPanel, cardBg]}>
           <View style={styles.orderPanelHeader}>
-            <View style={{ flex: 1 }}>
+            <View style={styles.flex1}>
               <Text style={[styles.orderStockSymbol, { color: colors.text }]}>
                 {selectedStock.symbol.includes(':') ? selectedStock.symbol.split(':')[1] : selectedStock.symbol}
               </Text>
@@ -991,22 +1011,16 @@ export default function InvestScreen() {
           {/* 매수/매도 선택 */}
           <View style={styles.orderTypeSelector}>
             <TouchableOpacity
-              style={[
-                styles.orderTypeButton,
-                { backgroundColor: orderType === 'buy' ? '#10B981' : colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
-              ]}
+              style={[styles.orderTypeButton, buyBtnBg]}
               onPress={() => setOrderType('buy')}>
-              <Text style={[styles.orderTypeButtonText, { color: orderType === 'buy' ? '#FFFFFF' : colors.text }]}>
+              <Text style={[styles.orderTypeButtonText, buyBtnText]}>
                 매수
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[
-                styles.orderTypeButton,
-                { backgroundColor: orderType === 'sell' ? '#EF4444' : colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
-              ]}
+              style={[styles.orderTypeButton, sellBtnBg]}
               onPress={() => setOrderType('sell')}>
-              <Text style={[styles.orderTypeButtonText, { color: orderType === 'sell' ? '#FFFFFF' : colors.text }]}>
+              <Text style={[styles.orderTypeButtonText, sellBtnText]}>
                 매도
               </Text>
             </TouchableOpacity>
@@ -1019,17 +1033,17 @@ export default function InvestScreen() {
               <TouchableOpacity
                 style={[
                   styles.accountSelector,
-                  { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
-                  accountLocked && { opacity: 0.7 }, // 잠김 시 보이는 스타일
+                  inputBg,
+                  accountLocked && styles.lockedOpacity,
                 ]}
                 onPress={() => { if (!accountLocked) setShowAccountPicker(true); }}
                 activeOpacity={accountLocked ? 1 : 0.7}>
-                <View style={{ flex: 1 }}>
+                <View style={styles.flex1}>
                   <Text style={[styles.accountName, { color: selectedAccount ? colors.text : colors.icon }]}>
                     {selectedAccount?.accountName || '계좌를 선택하세요'}
                   </Text>
                   {selectedAccount && (
-                    <Text style={{ fontSize: 12, color: colors.icon, marginTop: 2 }}>
+                    <Text style={[styles.balanceSubText, { color: colors.icon }]}>
                       잔액: ${selectedAccount.balance.toLocaleString()}
                     </Text>
                   )}
@@ -1042,7 +1056,7 @@ export default function InvestScreen() {
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: colors.text }]}>주문가격</Text>
               <TextInput
-                style={[styles.orderInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                style={[styles.orderInput, inputBg, { color: colors.text }]}
                 placeholder="0.00"
                 placeholderTextColor={colors.icon}
                 value={orderPrice}
@@ -1071,7 +1085,7 @@ export default function InvestScreen() {
                   maximumTrackTintColor={colorScheme === 'dark' ? '#334155' : '#E2E8F0'}
                   thumbTintColor="#10B981"
                 />
-                <Text style={[styles.ratioText, { color: '#10B981' }]}>{Math.round(investmentRatio)}%</Text>
+                <Text style={[styles.ratioText, styles.colorGreen]}>{Math.round(investmentRatio)}%</Text>
               </View>
             </View>
 
@@ -1079,7 +1093,7 @@ export default function InvestScreen() {
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: colors.text }]}>예상 수량</Text>
               <TextInput
-                style={[styles.orderInput, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC', color: colors.text }]}
+                style={[styles.orderInput, inputBg, { color: colors.text }]}
                 placeholder="0"
                 placeholderTextColor={colors.icon}
                 value={orderQuantity}
@@ -1089,16 +1103,16 @@ export default function InvestScreen() {
             </View>
 
             {/* 총 주문금액 */}
-            <View style={[styles.totalContainer, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' }]}>
+            <View style={[styles.totalContainer, inputBg]}>
               <Text style={[styles.totalLabel, { color: colors.icon }]}>총 주문금액</Text>
-              <Text style={[styles.totalAmount, { color: orderType === 'buy' ? '#10B981' : '#EF4444' }]}>
+              <Text style={[styles.totalAmount, orderType === 'buy' ? styles.colorGreen : styles.colorRed]}>
                 ${calculateTotal().toFixed(2)}
               </Text>
             </View>
 
             {/* 주문하기 버튼 */}
             <TouchableOpacity
-              style={[styles.submitButton, { backgroundColor: orderType === 'buy' ? '#10B981' : '#EF4444' }]}
+              style={[styles.submitButton, submitBtnBg]}
               onPress={handleOrder}>
               <Text style={styles.submitButtonText}>{orderType === 'buy' ? '매수' : '매도'} 주문하기</Text>
             </TouchableOpacity>
@@ -1114,7 +1128,7 @@ export default function InvestScreen() {
         animationType="slide"
         onRequestClose={() => setShowAccountPicker(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' }]}>
+          <View style={[styles.modalContent, cardBg]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>계좌 선택</Text>
               <TouchableOpacity onPress={() => setShowAccountPicker(false)}>
@@ -1123,8 +1137,8 @@ export default function InvestScreen() {
             </View>
             <ScrollView style={styles.accountList}>
               {accounts.length === 0 ? (
-                <View style={{ padding: 20, alignItems: 'center' }}>
-                  <Text style={{ color: colors.icon }}>계좌가 없습니다. 마이페이지에서 개인 계좌를 생성하거나 배틀에 참여하세요.</Text>
+                <View style={styles.modalEmptyContainer}>
+                  <Text style={[styles.emptyText, { color: colors.icon }]}>계좌가 없습니다. 마이페이지에서 개인 계좌를 생성하거나 배틀에 참여하세요.</Text>
                 </View>
               ) : (
                 accounts.map((account) => (
@@ -1132,7 +1146,7 @@ export default function InvestScreen() {
                     key={account.id}
                     style={[
                       styles.accountItem,
-                      { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F8FAFC' },
+                      pageBg,
                       selectedAccount?.id === account.id && styles.selectedAccountItem,
                     ]}
                     onPress={() => {
@@ -1142,9 +1156,9 @@ export default function InvestScreen() {
                       setInvestmentAmount(0);
                       setOrderQuantity('');
                     }}>
-                    <View style={{ flex: 1 }}>
+                    <View style={styles.flex1}>
                       <Text style={[styles.accountItemName, { color: colors.text }]}>{account.accountName}</Text>
-                      <Text style={{ fontSize: 13, color: colors.icon, marginTop: 4 }}>
+                      <Text style={[styles.balanceSubText, { color: colors.icon }]}>
                         잔액: ${account.balance.toLocaleString()}
                       </Text>
                     </View>
@@ -1163,6 +1177,18 @@ export default function InvestScreen() {
 }
 
 const styles = StyleSheet.create({
+  flex1: { flex: 1 },
+  alignItemsEnd: { alignItems: 'flex-end' as const },
+  fontBold: { fontWeight: '700' as const },
+  marginTop8: { marginTop: 8 },
+  marginTop16: { marginTop: 16 },
+  centerPad24: { alignItems: 'center' as const, padding: 24 },
+  colorRed: { color: '#EF4444' },
+  colorGreen: { color: '#10B981' },
+  lockedOpacity: { opacity: 0.7 },
+  balanceSubText: { fontSize: 12, marginTop: 2 },
+  modalEmptyContainer: { padding: 20, alignItems: 'center' as const },
+  tabActive: { color: '#6366F1' },
   container: {
     flex: 1,
   },

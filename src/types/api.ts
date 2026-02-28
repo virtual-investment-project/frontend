@@ -64,6 +64,18 @@ export interface AccountResponse {
   totalAsset: number;
 }
 
+export interface AccountProfitResponse {
+  accountId: string;
+  userId: string;
+  userName: string;
+  teamId: number | null;
+  teamName: string | null;
+  seedMoney: number;
+  totalAsset: number;
+  returnAmount: number;
+  returnRate: number;
+}
+
 // 보유 종목
 export interface StockHoldingResponse {
   id: string;
@@ -106,22 +118,58 @@ export interface PendingOrderResponse {
 }
 
 // 대결별 수익률
-export interface BattleProfitResponse {
-  name: string;
-  profitRate: number;
+export interface TeamProfitResponse {
+  teamId: number;
+  teamName: string;
+  battleId: string;
+  totalSeedMoney: number;
+  totalAsset: number;
+  returnAmount: number;
+  returnRate: number;
+  memberCount: number;
   rank: number;
+  members: AccountProfitResponse[];
+}
+
+export interface MyPageProfitResponse {
+  personalAccount: AccountProfitResponse | null;
+  battleAccounts: AccountProfitResponse[];
+}
+
+// 거래 내역
+export type TradeType = 'BUY' | 'SELL' | 'SEED_MONEY' | 'PROFIT_SNAPSHOT';
+
+export interface AccountHistoryResponse {
+  id: string;
+  accountId: string;
+  tradeType: TradeType;
+  amount: number;
+  balanceSnapshot: number;
+  description: string;
+  createdAt: string;
+}
+
+// 개인 계좌 수익률 랭킹
+export interface AccountRankingResponse {
+  accountId: string;
+  userId: string;
+  accountName: string;
+  userName: string;
+  seedMoney: number;
+  totalAsset: number;
+  returnRate: number;
 }
 
 // Team API 타입 정의
 
 export type TeamUserRole = 'LEADER' | 'MEMBER';
-export type TeamUserStatus = 'ACTIVE' | 'INACTIVE';
+export type TeamUserStatus = 'ACTIVE' | 'LEFT' | 'KICKED';
 
 export interface TeamResponse {
   id: number;
   battleId: string;
   name: string;
-  inviteCode: string;
+  inviteCode: string | null;
   description: string;
   rate: number;
   proceed: number;
@@ -155,7 +203,7 @@ export interface JoinTeamRequest {
 export interface CommentResponse {
   id: number;
   battleId: string;
-  userId: string;
+  userId: string;  // UUID 형식의 댓글 작성자 ID
   userNickname: string;
   parentId: number | null;
   content: string;

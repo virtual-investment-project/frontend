@@ -14,6 +14,7 @@ export type RootStackParamList = {
   AdditionalInfo: undefined;
   Main: NavigatorScreenParams<TabParamList>;
   BattleDetail: { battleId: string };
+  TeamManage: { battleId: string; teamId: number; teamName: string };
   CreateBattle: undefined;
   Modal: undefined;
   My: undefined;

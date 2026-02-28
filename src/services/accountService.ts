@@ -1,5 +1,5 @@
 import apiClient from '../api/axiosInstance';
-import { AccountResponse, StockHoldingResponse, MyAccountResponse, TransactionResponse, PendingOrderResponse, BattleProfitResponse } from '../types/api';
+import { AccountResponse, StockHoldingResponse, MyAccountResponse, TransactionResponse, PendingOrderResponse, AccountProfitResponse, MyPageProfitResponse } from '../types/api';
 
 /**
  * Account API Service
@@ -33,10 +33,14 @@ export const getPersonalAccount = async (): Promise<AccountResponse> => {
  */
 export const getBattleAccount = async (
   battleId: string
-): Promise<AccountResponse> => {
+): Promise<AccountResponse | null> => {
   const response = await apiClient.get<AccountResponse>(
     `/api/accounts/battle/${battleId}`
   );
+  // 204 No Content인 경우 null 반환
+  if (response.status === 204) {
+    return null;
+  }
   return response.data;
 };
 
@@ -91,12 +95,46 @@ export const getPendingOrders = async (): Promise<PendingOrderResponse[]> => {
 };
 
 /**
- * 대결별 수익률 조회
- * GET /api/accounts/personal/battles
+ * 내 개인 계좌 수익률 조회
+ * GET /api/accounts/personal/profit
  * 인증: 필요
  */
-export const getPersonalBattleProfits = async (): Promise<BattleProfitResponse[]> => {
-  const response = await apiClient.get<BattleProfitResponse[]>('/api/accounts/personal/battles');
+export const getPersonalAccountProfit = async (): Promise<AccountProfitResponse> => {
+  const response = await apiClient.get<AccountProfitResponse>('/api/accounts/personal/profit');
+  return response.data;
+};
+
+/**
+ * 내 배틀 계좌 수익률 조회
+ * GET /api/accounts/battle/{battleId}/profit
+ * 인증: 필요
+ */
+export const getBattleAccountProfit = async (
+  battleId: string
+): Promise<AccountProfitResponse> => {
+  const response = await apiClient.get<AccountProfitResponse>(`/api/accounts/battle/${battleId}/profit`);
+  return response.data;
+};
+
+/**
+ * 계좌 ID로 수익률 조회
+ * GET /api/accounts/{accountId}/profit
+ * 인증: 불필요
+ */
+export const getAccountProfitById = async (
+  accountId: string
+): Promise<AccountProfitResponse> => {
+  const response = await apiClient.get<AccountProfitResponse>(`/api/accounts/${accountId}/profit`);
+  return response.data;
+};
+
+/**
+ * 내 전체 계좌 수익률 조회
+ * GET /api/mypage/profit
+ * 인증: 필요
+ */
+export const getMyPageProfit = async (): Promise<MyPageProfitResponse> => {
+  const response = await apiClient.get<MyPageProfitResponse>('/api/mypage/profit');
   return response.data;
 };
 
@@ -109,5 +147,8 @@ export default {
   getPersonalStocks,
   getPersonalTransactions,
   getPendingOrders,
-  getPersonalBattleProfits,
+  getPersonalAccountProfit,
+  getBattleAccountProfit,
+  getAccountProfitById,
+  getMyPageProfit,
 };
