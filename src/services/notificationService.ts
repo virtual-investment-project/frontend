@@ -35,3 +35,9 @@ export const markAsRead = async (id: string): Promise<void> => {
 export const markAllAsRead = async (): Promise<void> => {
     await axiosInstance.patch('/api/notifications/read-all');
 };
+
+// FCM 디바이스 토큰 등록/갱신
+// 앱 시작(로그인 완료) 시 호출하여 백엔드에 토큰 저장
+export const registerFcmToken = async (fcmToken: string): Promise<void> => {
+    await axiosInstance.post('/api/notifications/fcm-token', { fcmToken });
+};
