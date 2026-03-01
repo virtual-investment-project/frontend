@@ -5,7 +5,7 @@ import { useColorScheme } from '../hooks/useColorScheme';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import apiClient from '../api/axiosInstance';
 import { getBattleById, getBattleTeamProfits, getBattleAccountProfits } from '../services/battleService';
 import { getTeamsByBattleId, getTeamMembers } from '../services/teamService';
@@ -193,7 +193,10 @@ export default function BattleDetailScreen() {
 
       // 팀 메타 + 수익률 병렬 조회
       const [teamsData, teamProfitsData, accountProfitsData] = await Promise.all([
-        getTeamsByBattleId(id),
+        getTeamsByBattleId(id).catch((err) => {
+          console.error('팀 목록 조회 오류:', err);
+          return [] as TeamResponse[];
+        }),
         getBattleTeamProfits(id).catch((err) => {
           console.error('팀 수익률 조회 오류:', err);
           return null;
@@ -324,7 +327,47 @@ export default function BattleDetailScreen() {
     }
   }, [id]);
 
-  // 화면 포커스 시 데이터 새로고침
+  // myUserId 보완 (fetchMyInfo 모든 fallback 실패 시)
+  // 우선순위: comments.userNickname 매칭 → teamMembers.userNickname 매칭
+  useEffect(() => {
+    if (myUserId || !myNickname) return;
+
+    // 1순위: comments에서 userNickname으로 userId(UUID) 추출
+    // CommentResponse.userId는 UUID, CommentResponse.userNickname은 닉네임
+    if (comments.length > 0) {
+      const findInComments = (list: CommentResponse[]): string | null => {
+        for (const c of list) {
+          if (c.userNickname === myNickname && isUuidLike(c.userId)) {
+            return c.userId;
+          }
+          if (c.replies) {
+            const found = findInComments(c.replies);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      const fromComment = findInComments(comments);
+      if (fromComment) {
+        console.log('[AUTH] comments에서 userId 보완 성공:', fromComment);
+        setMyUserId(fromComment);
+        return;
+      }
+    }
+
+    // 2순위: teamMembers에서 userNickname으로 userId(UUID) 추출
+    // TeamMemberResponse.userId는 UUID, TeamMemberResponse.userNickname은 닉네임
+    for (const members of Object.values(teamMembers)) {
+      const found = members.find((m) => m.userNickname === myNickname && isUuidLike(m.userId));
+      if (found) {
+        console.log('[AUTH] teamMembers에서 userId 보완 성공:', found.userId);
+        setMyUserId(found.userId);
+        return;
+      }
+    }
+  }, [myNickname, comments, teamMembers, myUserId]);
+
+  // 화면 포커스 시 데이터 새로고침 + 10초 폴링
   useFocusEffect(
     useCallback(() => {
       fetchMyInfo();
@@ -332,6 +375,14 @@ export default function BattleDetailScreen() {
       fetchTeams();
       fetchComments();
       checkParticipation();
+
+      // 배틀 화면에 있는 동안 10초마다 수익률 갱신
+      const profitInterval = setInterval(() => {
+        fetchTeams();
+      }, 10000);
+
+      // 화면에서 벗어나면 폴링 중지
+      return () => clearInterval(profitInterval);
     }, [fetchMyInfo, fetchBattleDetail, fetchTeams, fetchComments, checkParticipation])
   );
 
@@ -447,10 +498,11 @@ export default function BattleDetailScreen() {
     });
   };
 
-  // 수익률 챠트용 최대값 (teamProfits 기준)
-  const maxRate = teamProfits.length > 0
-    ? Math.max(...teamProfits.map(tp => Math.abs(tp.returnRate)))
-    : 0;
+  // teamId → 색상 맵 (teams 원본 순서 기준으로 고정)
+  // 바 차트와 팀 카드 모두 이 맵을 사용해 색상 일치
+  const teamColorMap = Object.fromEntries(
+    teams.map((team, index) => [team.id, TEAM_COLORS[index % TEAM_COLORS.length]])
+  );
 
   // 동적 스타일 변수 (react-native/no-inline-styles 린트 규칙 대응)
   const isDark = colorScheme === 'dark';
@@ -588,37 +640,74 @@ export default function BattleDetailScreen() {
             ) : (
               <>
                 <View style={styles.barChartContainer}>
-                  {teamProfits.map((tp, index) => {
-                    const barWidth = maxRate > 0 ? (Math.abs(tp.returnRate) / maxRate) * 100 : 0;
-                    const isPositive = tp.returnRate >= 0;
-                    const teamColor = TEAM_COLORS[index % TEAM_COLORS.length];
-                    const barValueStyle = isPositive ? styles.profitPositive : styles.profitNegative;
+                  {(() => {
+                    const allPositive = teamProfits.every(t => t.returnRate >= 0);
+                    const baseline = Math.max(...teamProfits.map(t => Math.abs(t.returnRate)));
+                    const maxR = Math.max(...teamProfits.map(t => t.returnRate));
 
-                    return (
-                      <View key={tp.teamId} style={styles.barChartRow}>
-                        <View style={styles.teamInfo}>
-                          <View style={[styles.teamColorDot, { backgroundColor: teamColor }]} />
-                          <Text style={[styles.teamBarName, dy.textColor]}>
-                            {tp.teamName}
+                    return teamProfits.map((tp, index) => {
+                      const isPositive = tp.returnRate >= 0;
+                      const teamColor = teamColorMap[tp.teamId] ?? TEAM_COLORS[index % TEAM_COLORS.length];
+                      // 바 색상: 수익률 기준 (양수=파란색, 음수=빨간색)
+                      const barColor = isPositive ? '#3B82F6' : '#EF4444';
+                      const barValueStyle = isPositive ? styles.profitPositive : styles.profitNegative;
+
+                      // 바 너비를 변수로 미리 계산 (inline ternary 린트 오류 방지)
+                      const normalWidth: `${number}%` = maxR > 0
+                        ? `${(tp.returnRate / maxR) * 100}%`
+                        : '0%';
+                      const positiveWidth: `${number}%` = baseline > 0
+                        ? `${(tp.returnRate / baseline) * 48}%`
+                        : '0%';
+                      const negativeWidth: `${number}%` = baseline > 0
+                        ? `${(Math.abs(tp.returnRate) / baseline) * 48}%`
+                        : '0%';
+
+                      return (
+                        <View key={tp.teamId} style={styles.barChartRow}>
+                          <View style={styles.teamInfo}>
+                            <View style={[styles.teamColorDot, { backgroundColor: teamColor }]} />
+                            <Text style={[styles.teamBarName, dy.textColor]}>
+                              {tp.teamName}
+                            </Text>
+                          </View>
+
+                          {allPositive ? (
+                            // 모두 양수: 왼쪽부터 시작하는 일반 바
+                            <View style={styles.barContainer}>
+                              <View style={[
+                                styles.barFill,
+                                { width: normalWidth, backgroundColor: barColor }
+                              ]} />
+                            </View>
+                          ) : (
+                            // 음수 포함: 중앙선 기준으로 좌(음수)/우(양수) 바
+                            <View style={styles.barContainerCenter}>
+                              {/* 중앙 기준선 */}
+                              <View style={styles.centerLine} />
+                              {isPositive ? (
+                                // 양수: 중앙에서 오른쪽으로
+                                <View style={[
+                                  styles.barFillRight,
+                                  { width: positiveWidth, backgroundColor: barColor }
+                                ]} />
+                              ) : (
+                                // 음수: 중앙에서 왼쪽으로
+                                <View style={[
+                                  styles.barFillLeft,
+                                  { width: negativeWidth, backgroundColor: barColor }
+                                ]} />
+                              )}
+                            </View>
+                          )}
+
+                          <Text style={[styles.barValue, barValueStyle]}>
+                            {isPositive ? '+' : ''}{tp.returnRate.toFixed(2)}%
                           </Text>
                         </View>
-
-                        <View style={styles.barContainer}>
-                          <View style={[
-                            styles.barFill,
-                            {
-                              width: `${Math.max(barWidth, 5)}%`,
-                              backgroundColor: teamColor,
-                            }
-                          ]} />
-                        </View>
-
-                        <Text style={[styles.barValue, barValueStyle]}>
-                          {isPositive ? '+' : ''}{tp.returnRate.toFixed(2)}%
-                        </Text>
-                      </View>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
                 </View>
 
                 {teamProfits.length >= 2 && (
@@ -657,7 +746,7 @@ export default function BattleDetailScreen() {
           const metaMembers = teamMembers[team.id] || [];
           const profit = teamProfits.find(tp => tp.teamId === team.id);
           const profitMembers = profit?.members ?? [];
-          const teamColor = TEAM_COLORS[teamIndex % TEAM_COLORS.length];
+          const teamColor = teamColorMap[team.id] ?? TEAM_COLORS[teamIndex % TEAM_COLORS.length];
           const myTeamMember = metaMembers.find((m) => {
             if (m.status !== 'ACTIVE') return false;
             if (myUserId) return m.userId === myUserId;
@@ -700,7 +789,7 @@ export default function BattleDetailScreen() {
                         {profit.returnRate >= 0 ? '+' : ''}{profit.returnRate.toFixed(2)}%
                       </Text>
                       <Text style={[styles.teamStatLabel, dy.iconColor]}>
-                        {profit.returnAmount >= 0 ? '+' : ''}{profit.returnAmount.toLocaleString()}원
+                        {profit.returnAmount >= 0 ? '+$' : '-$'}{Math.abs(profit.returnAmount).toLocaleString()}
                       </Text>
                     </>
                   ) : (
@@ -786,7 +875,7 @@ export default function BattleDetailScreen() {
                             )}
                           </View>
                           <Text style={[styles.memberValue, dy.iconColor]}>
-                            {pm.returnAmount >= 0 ? '+' : ''}{pm.returnAmount.toLocaleString()}원
+                            {pm.returnAmount >= 0 ? '+$' : '-$'}{Math.abs(pm.returnAmount).toLocaleString()}
                           </Text>
                         </View>
 
@@ -1162,6 +1251,38 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(148, 163, 184, 0.1)',
     borderRadius: 8,
     overflow: 'hidden',
+  },
+  barContainerCenter: {
+    height: 32,
+    backgroundColor: 'rgba(148, 163, 184, 0.1)',
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  centerLine: {
+    position: 'absolute',
+    left: '50%',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: 'rgba(148, 163, 184, 0.6)',
+    zIndex: 1,
+  },
+  barFillRight: {
+    position: 'absolute',
+    left: '50%',
+    top: 0,
+    bottom: 0,
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
+  },
+  barFillLeft: {
+    position: 'absolute',
+    right: '50%',
+    top: 0,
+    bottom: 0,
+    borderTopLeftRadius: 8,
+    borderBottomLeftRadius: 8,
   },
   barFill: {
     height: '100%',

@@ -113,7 +113,7 @@ export const setAccessToken = async (token: string): Promise<void> => {
  */
 export const getAccessToken = async (): Promise<string | null> => {
   const token = await EncryptedStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-  console.log('[TOKEN] Access Token 조회:', { hasToken: !!token, length: token?.length });
+  // console.log('[TOKEN] Access Token 조회:', { hasToken: !!token, length: token?.length });
   return token;
 };
 

@@ -757,13 +757,13 @@ export default function InvestScreen() {
                   <View style={styles.accountCardRow}>
                     <Text style={[styles.accountCardLabel, { color: colors.icon }]}>총 평가금액</Text>
                     <Text style={[styles.accountCardValue, { color: colors.text }]}>
-                      ₩{account.totalAsset.toLocaleString()}
+                      ${account.totalAsset.toLocaleString()}
                     </Text>
                   </View>
                   <View style={styles.accountCardRow}>
                     <Text style={[styles.accountCardLabel, { color: colors.icon }]}>사용 가능 금액</Text>
                     <Text style={[styles.accountCardValue, { color: colors.icon }]}>
-                      ₩{account.balance.toLocaleString()}
+                      ${account.balance.toLocaleString()}
                     </Text>
                   </View>
                 </View>
@@ -800,26 +800,26 @@ export default function InvestScreen() {
             <Text style={[styles.accountDetailName, { color: colors.text }]}>{portfolioSelectedAccount.accountName}</Text>
             <Text style={[styles.sectionTitle, styles.marginTop16, { color: colors.text }]}>총 평가금액</Text>
             <Text style={[styles.totalValue, { color: colors.text }]}>
-              ₩{totalHoldingValue.toLocaleString()}
+              ${totalHoldingValue.toLocaleString()}
             </Text>
             <View style={styles.accountCardRow}>
               <Text style={[styles.accountCardLabel, { color: colors.icon }]}>사용 가능 현금</Text>
               <Text style={[styles.accountCardValue, { color: colors.text }]}>
-                ₩{portfolioSelectedAccount.balance.toLocaleString()}
+                ${portfolioSelectedAccount.balance.toLocaleString()}
               </Text>
             </View>
             {portfolioPendingBuyAmount > 0 && (
               <View style={styles.accountCardRow}>
                 <Text style={[styles.accountCardLabel, { color: '#F59E0B' }]}>매수 예약금</Text>
                 <Text style={[styles.accountCardValue, { color: '#F59E0B' }]}>
-                  ₩{portfolioPendingBuyAmount.toLocaleString()}
+                  ${portfolioPendingBuyAmount.toLocaleString()}
                 </Text>
               </View>
             )}
             <View style={styles.accountCardRow}>
               <Text style={[styles.accountCardLabel, { color: colors.icon }]}>보유주식 평가액</Text>
               <Text style={[styles.accountCardValue, { color: colors.text }]}>
-                ₩{totalStockValue.toLocaleString()}
+                ${totalStockValue.toLocaleString()}
               </Text>
             </View>
             {portfolioProfit && (
@@ -827,13 +827,13 @@ export default function InvestScreen() {
                 <View style={styles.profitRow}>
                   <Text style={[styles.profitLabel, { color: colors.icon }]}>평가손익</Text>
                   <Text style={[styles.profitValue, portfolioProfit.returnAmount >= 0 ? styles.colorGreen : styles.colorRed]}>
-                    {portfolioProfit.returnAmount >= 0 ? '+' : ''}₩{portfolioProfit.returnAmount.toLocaleString()}{' '}
+                    {portfolioProfit.returnAmount >= 0 ? '+$' : '-$'}{Math.abs(portfolioProfit.returnAmount).toLocaleString()}{' '}
                     ({portfolioProfit.returnRate >= 0 ? '+' : ''}{portfolioProfit.returnRate.toFixed(2)}%)
                   </Text>
                 </View>
                 <View style={styles.profitRow}>
                   <Text style={[styles.profitLabel, { color: colors.icon }]}>시드머니</Text>
-                  <Text style={[styles.profitValue, { color: colors.icon }]}>₩{portfolioProfit.seedMoney.toLocaleString()}</Text>
+                  <Text style={[styles.profitValue, { color: colors.icon }]}>${portfolioProfit.seedMoney.toLocaleString()}</Text>
                 </View>
               </>
             )}
@@ -981,7 +981,7 @@ export default function InvestScreen() {
               <View style={styles.detailRow}>
                 <Text style={[styles.detailLabel, { color: colors.icon }]}>주문금액</Text>
                 <Text style={[styles.detailValue, { color: colors.text }, styles.fontBold]}>
-                  ₩{order.totalAmount.toLocaleString()}
+                  ${order.totalAmount.toLocaleString()}
                 </Text>
               </View>
             </View>
@@ -1058,12 +1058,12 @@ export default function InvestScreen() {
                 <View style={styles.detailRow}>
                   <Text style={[styles.detailLabel, { color: colors.icon }]}>거래 금액</Text>
                   <Text style={[styles.detailValue, { color: amountColor }]}>
-                    {isPositive ? '+' : '-'}₩{Math.abs(item.amount).toLocaleString()}
+                    {isPositive ? '+$' : '-$'}{Math.abs(item.amount).toLocaleString()}
                   </Text>
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={[styles.detailLabel, { color: colors.icon }]}>거래 후 잔액</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>₩{item.balanceSnapshot.toLocaleString()}</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>${item.balanceSnapshot.toLocaleString()}</Text>
                 </View>
               </View>
             </View>
