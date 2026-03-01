@@ -460,35 +460,6 @@ export default function MyScreen() {
           </TouchableOpacity>
         </View>
       </View>
-
-      {/* 이용 및 정책 */}
-      <View style={[styles.card, styles.shadow, { backgroundColor: cardBg }]}>
-        <View style={styles.settingsSectionHeader}>
-          <Text style={[styles.settingsSectionIcon]}>📄</Text>
-          <ThemedText type="subtitle" style={styles.cardTitle}>이용 및 정책</ThemedText>
-        </View>
-
-        <TouchableOpacity
-          style={styles.settingItemLink}
-          onPress={() => Alert.alert('개인정보 처리방침', '개인정보 처리방침 페이지로 이동합니다.')}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>개인정보 처리방침</Text>
-          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.settingItemLink}
-          onPress={() => Alert.alert('서비스 이용약관', '서비스 이용약관 페이지로 이동합니다.')}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>서비스 이용약관</Text>
-          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.settingItemLink, styles.noBorder]}
-          onPress={() => Alert.alert('오픈소스 라이선스', '오픈소스 라이선스 페이지로 이동합니다.')}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>오픈소스 라이선스</Text>
-          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
-        </TouchableOpacity>
-      </View>
     </View>
   );
 
