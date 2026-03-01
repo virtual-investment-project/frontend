@@ -351,41 +351,15 @@ export default function MyScreen() {
       <View style={[styles.card, styles.shadow, { backgroundColor: cardBg }]}>
         <ThemedText type="subtitle" style={styles.cardTitle}>계좌에 돈 추가</ThemedText>
         <Text style={[styles.description, { color: colors.icon }]}>
-          광고를 시청하거나 결제를 통해 가상 자산을 추가할 수 있습니다.
+          광고를 시청해 가상 자산을 추가할 수 있습니다.
         </Text>
 
         <TouchableOpacity style={[styles.depositButton, styles.depositBtnGreen]}>
           <IconSymbol size={20} name="play.circle.fill" color="#FFFFFF" />
-          <Text style={styles.depositButtonText}>광고 보고 ₩100,000 받기</Text>
+          <Text style={styles.depositButtonText}>광고 보고 ₩100,000 받기(개발중)</Text>
         </TouchableOpacity>
 
         <View style={[styles.divider, { backgroundColor: dividerBg }, styles.dividerMargin]} />
-
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>결제하기</Text>
-
-        <TouchableOpacity style={[styles.paymentOption, { backgroundColor: inputBg }]}>
-          <View>
-            <Text style={[styles.paymentAmount, { color: colors.text }]}>₩1,000,000</Text>
-            <Text style={[styles.paymentPrice, { color: colors.icon }]}>₩1,000</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.paymentOption, { backgroundColor: inputBg }]}>
-          <View>
-            <Text style={[styles.paymentAmount, { color: colors.text }]}>₩5,000,000</Text>
-            <Text style={[styles.paymentPrice, { color: colors.icon }]}>₩5,000</Text>
-          </View>
-          <View style={[styles.badge, styles.badgePrimary]}>
-            <Text style={styles.badgeText}>인기</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.paymentOption, { backgroundColor: inputBg }]}>
-          <View>
-            <Text style={[styles.paymentAmount, { color: colors.text }]}>₩10,000,000</Text>
-            <Text style={[styles.paymentPrice, { color: colors.icon }]}>₩10,000</Text>
-          </View>
-        </TouchableOpacity>
       </View>
     </View>
   );
