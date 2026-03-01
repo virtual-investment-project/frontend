@@ -54,6 +54,7 @@ export default function MyScreen() {
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedInfo, setEditedInfo] = useState({
+    nickname: '',
     school: '',
     company: '',
   });
@@ -78,7 +79,7 @@ export default function MyScreen() {
     });
     fetchUserProfile();
     loadNotificationSettings();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 알림 설정 로드
@@ -115,6 +116,7 @@ export default function MyScreen() {
       const response = await apiClient.get<UserProfile>('/api/mypage/profile');
       setUserInfo(response.data);
       setEditedInfo({
+        nickname: response.data.nickname || '',
         school: response.data.school || '',
         company: response.data.company || '',
       });
@@ -193,6 +195,7 @@ export default function MyScreen() {
       try {
         // 백엔드에 프로필 업데이트 요청
         const response = await apiClient.patch<UserProfile>('/api/mypage/profile', {
+          nickname: editedInfo.nickname.trim() || null,
           school: editedInfo.school.trim() || null,
           company: editedInfo.company.trim() || null,
         });
@@ -209,6 +212,7 @@ export default function MyScreen() {
       setIsEditMode(true);
       if (userInfo) {
         setEditedInfo({
+          nickname: userInfo.nickname || '',
           school: userInfo.school || '',
           company: userInfo.company || '',
         });
@@ -220,6 +224,7 @@ export default function MyScreen() {
     setIsEditMode(false);
     if (userInfo) {
       setEditedInfo({
+        nickname: userInfo.nickname || '',
         school: userInfo.school || '',
         company: userInfo.company || '',
       });
@@ -255,7 +260,17 @@ export default function MyScreen() {
 
           <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { color: colors.icon }]}>닉네임</Text>
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.nickname}</Text>
+            {isEditMode ? (
+              <TextInput
+                style={[styles.infoInput, { backgroundColor: inputBg, color: colors.text }]}
+                value={editedInfo.nickname}
+                onChangeText={(text) => setEditedInfo({ ...editedInfo, nickname: text })}
+                placeholder="닉네임을 입력하세요"
+                placeholderTextColor={colors.icon}
+              />
+            ) : (
+              <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.nickname || '-'}</Text>
+            )}
           </View>
 
           <View style={styles.infoRow}>
