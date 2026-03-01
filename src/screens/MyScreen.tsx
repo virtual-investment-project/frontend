@@ -54,6 +54,7 @@ export default function MyScreen() {
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedInfo, setEditedInfo] = useState({
+    nickname: '',
     school: '',
     company: '',
   });
@@ -78,7 +79,7 @@ export default function MyScreen() {
     });
     fetchUserProfile();
     loadNotificationSettings();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 알림 설정 로드
@@ -115,6 +116,7 @@ export default function MyScreen() {
       const response = await apiClient.get<UserProfile>('/api/mypage/profile');
       setUserInfo(response.data);
       setEditedInfo({
+        nickname: response.data.nickname || '',
         school: response.data.school || '',
         company: response.data.company || '',
       });
@@ -193,6 +195,7 @@ export default function MyScreen() {
       try {
         // 백엔드에 프로필 업데이트 요청
         const response = await apiClient.patch<UserProfile>('/api/mypage/profile', {
+          nickname: editedInfo.nickname.trim() || null,
           school: editedInfo.school.trim() || null,
           company: editedInfo.company.trim() || null,
         });
@@ -209,6 +212,7 @@ export default function MyScreen() {
       setIsEditMode(true);
       if (userInfo) {
         setEditedInfo({
+          nickname: userInfo.nickname || '',
           school: userInfo.school || '',
           company: userInfo.company || '',
         });
@@ -220,6 +224,7 @@ export default function MyScreen() {
     setIsEditMode(false);
     if (userInfo) {
       setEditedInfo({
+        nickname: userInfo.nickname || '',
         school: userInfo.school || '',
         company: userInfo.company || '',
       });
@@ -255,7 +260,17 @@ export default function MyScreen() {
 
           <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { color: colors.icon }]}>닉네임</Text>
-            <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.nickname}</Text>
+            {isEditMode ? (
+              <TextInput
+                style={[styles.infoInput, { backgroundColor: inputBg, color: colors.text }]}
+                value={editedInfo.nickname}
+                onChangeText={(text) => setEditedInfo({ ...editedInfo, nickname: text })}
+                placeholder="닉네임을 입력하세요"
+                placeholderTextColor={colors.icon}
+              />
+            ) : (
+              <Text style={[styles.infoValue, { color: colors.text }]}>{userInfo.nickname || '-'}</Text>
+            )}
           </View>
 
           <View style={styles.infoRow}>
@@ -336,41 +351,15 @@ export default function MyScreen() {
       <View style={[styles.card, styles.shadow, { backgroundColor: cardBg }]}>
         <ThemedText type="subtitle" style={styles.cardTitle}>계좌에 돈 추가</ThemedText>
         <Text style={[styles.description, { color: colors.icon }]}>
-          광고를 시청하거나 결제를 통해 가상 자산을 추가할 수 있습니다.
+          광고를 시청해 가상 자산을 추가할 수 있습니다.
         </Text>
 
         <TouchableOpacity style={[styles.depositButton, styles.depositBtnGreen]}>
           <IconSymbol size={20} name="play.circle.fill" color="#FFFFFF" />
-          <Text style={styles.depositButtonText}>광고 보고 ₩100,000 받기</Text>
+          <Text style={styles.depositButtonText}>광고 보고 ₩100,000 받기(개발중)</Text>
         </TouchableOpacity>
 
         <View style={[styles.divider, { backgroundColor: dividerBg }, styles.dividerMargin]} />
-
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>결제하기</Text>
-
-        <TouchableOpacity style={[styles.paymentOption, { backgroundColor: inputBg }]}>
-          <View>
-            <Text style={[styles.paymentAmount, { color: colors.text }]}>₩1,000,000</Text>
-            <Text style={[styles.paymentPrice, { color: colors.icon }]}>₩1,000</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.paymentOption, { backgroundColor: inputBg }]}>
-          <View>
-            <Text style={[styles.paymentAmount, { color: colors.text }]}>₩5,000,000</Text>
-            <Text style={[styles.paymentPrice, { color: colors.icon }]}>₩5,000</Text>
-          </View>
-          <View style={[styles.badge, styles.badgePrimary]}>
-            <Text style={styles.badgeText}>인기</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.paymentOption, { backgroundColor: inputBg }]}>
-          <View>
-            <Text style={[styles.paymentAmount, { color: colors.text }]}>₩10,000,000</Text>
-            <Text style={[styles.paymentPrice, { color: colors.icon }]}>₩10,000</Text>
-          </View>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -444,35 +433,6 @@ export default function MyScreen() {
             <View style={[styles.toggleThumb, darkMode && styles.toggleThumbActive]} />
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* 이용 및 정책 */}
-      <View style={[styles.card, styles.shadow, { backgroundColor: cardBg }]}>
-        <View style={styles.settingsSectionHeader}>
-          <Text style={[styles.settingsSectionIcon]}>📄</Text>
-          <ThemedText type="subtitle" style={styles.cardTitle}>이용 및 정책</ThemedText>
-        </View>
-
-        <TouchableOpacity
-          style={styles.settingItemLink}
-          onPress={() => Alert.alert('개인정보 처리방침', '개인정보 처리방침 페이지로 이동합니다.')}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>개인정보 처리방침</Text>
-          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.settingItemLink}
-          onPress={() => Alert.alert('서비스 이용약관', '서비스 이용약관 페이지로 이동합니다.')}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>서비스 이용약관</Text>
-          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.settingItemLink, styles.noBorder]}
-          onPress={() => Alert.alert('오픈소스 라이선스', '오픈소스 라이선스 페이지로 이동합니다.')}>
-          <Text style={[styles.settingLabel, { color: colors.text }]}>오픈소스 라이선스</Text>
-          <IconSymbol size={20} name="chevron.right" color={colors.icon} />
-        </TouchableOpacity>
       </View>
     </View>
   );
