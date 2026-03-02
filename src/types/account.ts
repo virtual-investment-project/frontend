@@ -5,6 +5,10 @@ export interface Account {
   accountName: string;
   balance: number; // 잔액 (원화)
   totalAsset: number; // 총 자산 (원화)
+  // 배틀 계좌인 경우에만 존재
+  battleStatus?: 'YET' | 'PROGRESS' | 'END';
+  battleStartAt?: string;
+  battleEndAt?: string;
 }
 
 export interface CreateOrderRequest {

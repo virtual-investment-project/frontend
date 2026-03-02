@@ -1,11 +1,12 @@
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ThemedText } from '../components/ThemedText';
 import { IconSymbol } from '../components/ui/IconSymbol';
 import { Colors } from '../constants/theme';
 import { useColorScheme } from '../hooks/useColorScheme';
-import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { useState, useCallback, useEffect } from 'react';
 import apiClient from '../api/axiosInstance';
 import { getBattleById, getBattleTeamProfits, getBattleAccountProfits } from '../services/battleService';
 import { getTeamsByBattleId, getTeamMembers } from '../services/teamService';
@@ -17,7 +18,6 @@ import JoinBattleModal from '../components/JoinBattleModal';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type BattleDetailRouteProp = RouteProp<RootStackParamList, 'BattleDetail'>;
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 
 // 팀 색상 배열
 const TEAM_COLORS = ['#10B981', '#EF4444', '#6366F1', '#F59E0B', '#8B5CF6', '#EC4899'];
@@ -76,6 +76,8 @@ export default function BattleDetailScreen() {
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState<CommentResponse[]>([]);
   const [teams, setTeams] = useState<TeamResponse[]>([]);
+  // setTeams 와 동기화되는 ref — refreshProfitsSilently에서 deps 없이 최신 teams 참조용
+  const teamsRef = useRef<TeamResponse[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ [teamId: number]: TeamMemberResponse[] }>({});
   const [teamProfits, setTeamProfits] = useState<TeamProfitResponse[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
@@ -186,7 +188,77 @@ export default function BattleDetailScreen() {
     }
   }, [id]);
 
-  // 팀 목록 조회
+  // 수익률 수치만 조용히 갱신 (로딩 스피너 없이, 10초 폴링용)
+  // teams 대신 teamsRef.current 사용 → deps에 teams 없음 → 무한루프 방지
+  const refreshProfitsSilently = useCallback(async () => {
+    try {
+      const [teamProfitsData, accountProfitsData] = await Promise.all([
+        getBattleTeamProfits(id).catch(() => null),
+        getBattleAccountProfits(id).catch(() => [] as AccountProfitResponse[]),
+      ]);
+
+      const currentTeams = teamsRef.current;
+
+      const normalizeMembers = (members: AccountProfitResponse[] | undefined): AccountProfitResponse[] =>
+        Array.isArray(members) ? members : [];
+
+      const toTeamProfitMapFromAccounts = (accounts: AccountProfitResponse[]): TeamProfitResponse[] => {
+        const byTeam = new Map<number, AccountProfitResponse[]>();
+        accounts.forEach((account) => {
+          if (account.teamId == null) return;
+          const teamIdNum = Number(account.teamId);
+          if (!Number.isFinite(teamIdNum)) return;
+          const list = byTeam.get(teamIdNum) ?? [];
+          list.push(account);
+          byTeam.set(teamIdNum, list);
+        });
+        const aggregated = Array.from(byTeam.entries()).map(([teamIdNum, members]) => {
+          const totalSeedMoney = members.reduce((sum, m) => sum + (m.seedMoney ?? 0), 0);
+          const totalAsset = members.reduce((sum, m) => sum + (m.totalAsset ?? 0), 0);
+          const returnAmount = members.reduce((sum, m) => sum + (m.returnAmount ?? 0), 0);
+          const returnRate = totalSeedMoney > 0 ? (returnAmount / totalSeedMoney) * 100 : 0;
+          const teamMeta = currentTeams.find((team) => team.id === teamIdNum);
+          return {
+            teamId: teamIdNum,
+            teamName: teamMeta?.name ?? members[0]?.teamName ?? `팀 ${teamIdNum}`,
+            battleId: id,
+            totalSeedMoney,
+            totalAsset,
+            returnAmount,
+            returnRate,
+            memberCount: members.length,
+            rank: 0,
+            members,
+          } as TeamProfitResponse;
+        });
+        aggregated.sort((a, b) => b.returnRate - a.returnRate);
+        return aggregated.map((item, index) => ({ ...item, rank: index + 1 }));
+      };
+
+      const normalizedTeamProfits = (teamProfitsData ?? []).map((profit) => ({
+        ...profit,
+        teamId: Number(profit.teamId),
+        members: normalizeMembers(profit.members),
+      }));
+
+      const fallbackTeamProfits = toTeamProfitMapFromAccounts(accountProfitsData);
+      const profitsData = normalizedTeamProfits.length > 0 ? normalizedTeamProfits : fallbackTeamProfits;
+
+      const profitsWithMembers = profitsData.map((teamProfit) => {
+        if (teamProfit.members.length > 0) return teamProfit;
+        const fallbackMembers = accountProfitsData.filter(
+          (account) => account.teamId != null && Number(account.teamId) === Number(teamProfit.teamId)
+        );
+        return { ...teamProfit, members: fallbackMembers, memberCount: teamProfit.memberCount || fallbackMembers.length };
+      });
+
+      setTeamProfits(profitsWithMembers);
+    } catch (err) {
+      console.error('[POLL] 수익률 갱신 오류:', err);
+    }
+  }, [id]); // teams 제거 → teamsRef.current으로 접근해 deps 순환 차단
+
+  // 팀 목록 조회 (최초 로드 또는 팀 참여 후 전체 새로고침)
   const fetchTeams = useCallback(async () => {
     try {
       setLoadingTeams(true);
@@ -277,6 +349,7 @@ export default function BattleDetailScreen() {
 
       console.log('[PROFIT] 팀 메타:', teamsData.length, '팀 수익률:', normalizedTeamProfits.length, '개인 수익률:', accountProfitsData.length, '최종 팀수익률:', profitsWithMembers.length);
 
+      teamsRef.current = teamsData;
       setTeams(teamsData);
       setTeamProfits(profitsWithMembers);
 
@@ -367,7 +440,7 @@ export default function BattleDetailScreen() {
     }
   }, [myNickname, comments, teamMembers, myUserId]);
 
-  // 화면 포커스 시 데이터 새로고침 + 10초 폴링
+  // 화면 포커스 시 최초 데이터 로드 (인터벌 없음 — 아래 useEffect에서 별도 관리)
   useFocusEffect(
     useCallback(() => {
       fetchMyInfo();
@@ -375,16 +448,16 @@ export default function BattleDetailScreen() {
       fetchTeams();
       fetchComments();
       checkParticipation();
-
-      // 배틀 화면에 있는 동안 10초마다 수익률 갱신
-      const profitInterval = setInterval(() => {
-        fetchTeams();
-      }, 10000);
-
-      // 화면에서 벗어나면 폴링 중지
-      return () => clearInterval(profitInterval);
     }, [fetchMyInfo, fetchBattleDetail, fetchTeams, fetchComments, checkParticipation])
   );
+
+  // 10초 폴링: refreshProfitsSilently는 [id]만 의존 → 재생성 없음 → 루프 없음
+  useEffect(() => {
+    const profitInterval = setInterval(() => {
+      refreshProfitsSilently();
+    }, 10000);
+    return () => clearInterval(profitInterval);
+  }, [refreshProfitsSilently]);
 
   const handleJoinBattle = () => {
     setShowJoinModal(true);

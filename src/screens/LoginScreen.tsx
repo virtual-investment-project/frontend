@@ -8,6 +8,7 @@ import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-si
 import { setTokens } from '../utils/tokenStorage';
 import { GOOGLE_WEB_CLIENT_ID, API_BASE_URL } from '@env';
 import { GoogleLoginResponse } from '../types/auth';
+import { useTheme } from '../contexts/ThemeContext';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 import {
@@ -23,6 +24,7 @@ import {
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const { reloadSettings } = useTheme();
   const [loading, setLoading] = React.useState(false);
 
   useEffect(() => {
@@ -59,7 +61,10 @@ export default function LoginScreen() {
       await setTokens(accessToken, refreshToken, role);
       console.log('[LOGIN] 토큰 저장 완료');
       
-      // 5. 역할에 따른 화면 전환
+      // 5. 로그인 후 테마 설정 로드
+      await reloadSettings();
+
+      // 6. 역할에 따른 화면 전환
       if (role === 'GUEST') {
         navigation.reset({
           index: 0,

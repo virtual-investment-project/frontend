@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { getSettings, updateSettings } from '../services/settingsService';
+import { getAccessToken } from '../utils/tokenStorage';
 
 interface ThemeContextType {
     darkMode: boolean;
     setDarkMode: (darkMode: boolean) => void;
     toggleDarkMode: () => Promise<void>;
+    reloadSettings: () => Promise<void>;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -15,23 +17,23 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
     const [darkMode, setDarkMode] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
 
-    // 앱 시작 시 백엔드에서 설정 로드
+    // 앱 시작 시 백엔드에서 설정 로드 (로그인 상태일 때만)
     useEffect(() => {
         loadSettings();
     }, []);
 
     const loadSettings = async () => {
         try {
+            // 토큰이 없으면 API 호출 생략 (흰 화면 방지)
+            const token = await getAccessToken();
+            if (!token) return;
+
             const settings = await getSettings();
             setDarkMode(settings.darkMode);
         } catch (error) {
             console.error('Failed to load theme settings:', error);
-            // 실패 시 시스템 설정 사용
-            setDarkMode(false);
-        } finally {
-            setIsLoading(false);
+            // 실패 시 기본값(false) 유지
         }
     };
 
@@ -50,12 +52,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         darkMode,
         setDarkMode,
         toggleDarkMode,
+        reloadSettings: loadSettings, // 로그인 후 호출용
     };
-
-    // 로딩 중에는 빈 화면 표시 (또는 스플래시 스크린)
-    if (isLoading) {
-        return null;
-    }
 
     return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
