@@ -1120,6 +1120,7 @@ export default function InvestScreen() {
   const buyBtnText = { color: orderType === 'buy' ? '#FFFFFF' : colors.text };
   const sellBtnText = { color: orderType === 'sell' ? '#FFFFFF' : colors.text };
   const isBattleNotStarted = selectedAccount?.battleStatus === 'YET';
+  const isOrderDisabled = isBattleNotStarted || isSubmitting;
   const submitBtnBg = isBattleNotStarted
     ? { backgroundColor: '#94A3B8' }
     : { backgroundColor: orderType === 'buy' ? '#10B981' : '#EF4444' };
@@ -1294,16 +1295,11 @@ export default function InvestScreen() {
               </Text>
             )}
             <TouchableOpacity
-              style={[styles.submitButton, submitBtnBg]}
-              disabled={isBattleNotStarted}
+              style={[styles.submitButton, submitBtnBg, isSubmitting && { opacity: 0.5 }]}
+              disabled={isOrderDisabled}
               onPress={handleOrder}>
               <Text style={styles.submitButtonText}>
-                {isBattleNotStarted ? '배틀 시작 전' : `${orderType === 'buy' ? '매수' : '매도'} 주문하기`}
-              style={[styles.submitButton, submitBtnBg, isSubmitting && { opacity: 0.5 }]}
-              onPress={handleOrder}
-              disabled={isSubmitting}>
-              <Text style={styles.submitButtonText}>
-                {isSubmitting ? '처리 중...' : (orderType === 'buy' ? '매수' : '매도') + ' 주문하기'}
+                {isBattleNotStarted ? '배틀 시작 전' : isSubmitting ? '처리 중...' : `${orderType === 'buy' ? '매수' : '매도'} 주문하기`}
               </Text>
             </TouchableOpacity>
 
