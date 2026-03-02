@@ -140,6 +140,9 @@ export default function InvestScreen() {
                   accountName: data.name,
                   balance: data.balance,
                   totalAsset: data.totalAsset,
+                  battleStatus: battle.status,
+                  battleStartAt: battle.startAt,
+                  battleEndAt: battle.endAt,
                 });
               }
             } catch {
@@ -439,6 +442,18 @@ export default function InvestScreen() {
     }
     if (!selectedAccount) {
       Alert.alert('오류', '계좌를 선택해주세요.');
+      return;
+    }
+    // 배틀 시작 전 거래 차단
+    if (selectedAccount.battleStatus === 'YET') {
+      const startAt = selectedAccount.battleStartAt
+        ? new Date(selectedAccount.battleStartAt).toLocaleString('ko-KR')
+        : '배틀 시작 시간';
+      Alert.alert('거래 불가', `배틀이 아직 시작되지 않았습니다.\n${startAt} 이후에 거래할 수 있습니다.`);
+      return;
+    }
+    if (selectedAccount.battleStatus === 'END') {
+      Alert.alert('거래 불가', '종료된 배틀의 계좌로는 거래할 수 없습니다.');
       return;
     }
     if (!orderPrice || parseFloat(orderPrice) <= 0) {
@@ -1083,7 +1098,10 @@ export default function InvestScreen() {
   const sellBtnBg = { backgroundColor: orderType === 'sell' ? '#EF4444' : pageBg.backgroundColor };
   const buyBtnText = { color: orderType === 'buy' ? '#FFFFFF' : colors.text };
   const sellBtnText = { color: orderType === 'sell' ? '#FFFFFF' : colors.text };
-  const submitBtnBg = { backgroundColor: orderType === 'buy' ? '#10B981' : '#EF4444' };
+  const isBattleNotStarted = selectedAccount?.battleStatus === 'YET';
+  const submitBtnBg = isBattleNotStarted
+    ? { backgroundColor: '#94A3B8' }
+    : { backgroundColor: orderType === 'buy' ? '#10B981' : '#EF4444' };
 
   return (
     <View style={[styles.container, pageBg]}>
@@ -1246,10 +1264,21 @@ export default function InvestScreen() {
             </View>
 
             {/* 주문하기 버튼 */}
+            {isBattleNotStarted && (
+              <Text style={{ color: '#F59E0B', fontSize: 12, textAlign: 'center', marginBottom: 6 }}>
+                ⏳ 배틀 시작 후 거래 가능
+                {selectedAccount?.battleStartAt
+                  ? `\n${new Date(selectedAccount.battleStartAt).toLocaleString('ko-KR')}`
+                  : ''}
+              </Text>
+            )}
             <TouchableOpacity
               style={[styles.submitButton, submitBtnBg]}
+              disabled={isBattleNotStarted}
               onPress={handleOrder}>
-              <Text style={styles.submitButtonText}>{orderType === 'buy' ? '매수' : '매도'} 주문하기</Text>
+              <Text style={styles.submitButtonText}>
+                {isBattleNotStarted ? '배틀 시작 전' : `${orderType === 'buy' ? '매수' : '매도'} 주문하기`}
+              </Text>
             </TouchableOpacity>
 
           </ScrollView>
