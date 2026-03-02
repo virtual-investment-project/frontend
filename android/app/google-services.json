@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "621225237984",
+    "project_id": "virtual-investment",
+    "storage_bucket": "virtual-investment.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621225237984:android:3b632cafe194bf8fefdf85",
+        "android_client_info": {
+          "package_name": "com.frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyASxT46QBkbQKn3_yS2BDzIew-Q9vZFmdY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
