@@ -101,6 +101,9 @@ export default function InvestScreen() {
   const [investmentRatio, setInvestmentRatio] = useState(0); // 0 ~ 100%
   const [investmentAmount, setInvestmentAmount] = useState(0); // 투자 금액 (원화)
 
+  // 주문 중복 제출 방지
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // 매도 시 보유 수량 (selectedAccount + selectedStock 조합)
   const [sellableQuantity, setSellableQuantity] = useState(0);
   // 포트폴리오 상세보기에서 직접 매도 시 사용
@@ -160,7 +163,7 @@ export default function InvestScreen() {
       };
 
       fetchAccounts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
   );
 
@@ -284,7 +287,7 @@ export default function InvestScreen() {
     poll();
     const intervalId = setInterval(poll, 5000); // 5초마다
     return () => clearInterval(intervalId);    // 상세보기 닫히면 정리
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [portfolioSelectedAccount?.id]);           // id 기준으로만 재등록
 
 
@@ -436,6 +439,8 @@ export default function InvestScreen() {
   };
 
   const handleOrder = async () => {
+    if (isSubmitting) return; // 중복 제출 방지
+
     if (!selectedStock) {
       Alert.alert('오류', '종목을 선택해주세요.');
       return;
@@ -474,6 +479,7 @@ export default function InvestScreen() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       // 종목 코드 추출 (NASDAQ:NVDA -> NVDA)
       const stockCode = selectedStock.symbol.includes(':')
@@ -509,8 +515,23 @@ export default function InvestScreen() {
       );
     } catch (error: any) {
       console.error('주문 실패:', error);
-      const errorMessage = error.response?.data?.message || '주문 처리 중 오류가 발생했습니다.';
+      const status = error.response?.status;
+      const serverMessage = error.response?.data?.message;
+
+      let errorMessage: string;
+      if (serverMessage) {
+        // 서버가 보낸 메시지 우선 표시 (비즈니스 오류 포함)
+        errorMessage = serverMessage;
+      } else if (status === 401) {
+        errorMessage = '로그인이 필요합니다. 다시 로그인해 주세요.';
+      } else if (status === 403) {
+        errorMessage = '권한이 없습니다.';
+      } else {
+        errorMessage = '주문 처리 중 오류가 발생했습니다.';
+      }
       Alert.alert('주문 실패', errorMessage);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -543,45 +564,45 @@ export default function InvestScreen() {
     };
     const changeColor = { color: fav.change >= 0 ? '#10B981' : '#EF4444' };
     return (
-    <TouchableOpacity
-      key={fav.symbol}
-      style={[
-        styles.stockCard,
-        styles.shadow,
-        cardBg,
-        favCardBorder,
-      ]}
-      onPress={() => handleFavoriteSelect(fav)}>
-      <View style={styles.flex1}>
-        <Text style={[styles.stockSymbol, { color: colors.text }]}>
-          {fav.symbol.includes(':') ? fav.symbol.split(':')[1] : fav.symbol}
-        </Text>
-        <Text style={[styles.stockName, { color: colors.icon }]}>
-          {fav.koreanName || fav.name}
-        </Text>
-        <Text style={[styles.marketCap, { color: colors.icon }]}>시가총액: {fav.marketCap}</Text>
-      </View>
-      <View style={styles.alignItemsEnd}>
-        <Text style={[styles.stockPrice, { color: colors.text }]}>${fav.currentPrice.toFixed(2)}</Text>
-        <View style={styles.stockChangeRow}>
-          <IconSymbol
-            size={12}
-            name={fav.change >= 0 ? 'arrow.up' : 'arrow.down'}
-            color={fav.change >= 0 ? '#10B981' : '#EF4444'}
-          />
-          <Text style={[styles.stockChange, changeColor]}>
-            {fav.change >= 0 ? '+' : ''}
-            {fav.change.toFixed(2)} ({fav.changePercent >= 0 ? '+' : ''}
-            {fav.changePercent.toFixed(2)}%)
+      <TouchableOpacity
+        key={fav.symbol}
+        style={[
+          styles.stockCard,
+          styles.shadow,
+          cardBg,
+          favCardBorder,
+        ]}
+        onPress={() => handleFavoriteSelect(fav)}>
+        <View style={styles.flex1}>
+          <Text style={[styles.stockSymbol, { color: colors.text }]}>
+            {fav.symbol.includes(':') ? fav.symbol.split(':')[1] : fav.symbol}
           </Text>
+          <Text style={[styles.stockName, { color: colors.icon }]}>
+            {fav.koreanName || fav.name}
+          </Text>
+          <Text style={[styles.marketCap, { color: colors.icon }]}>시가총액: {fav.marketCap}</Text>
         </View>
-        <TouchableOpacity
-          onPress={() => handleToggleFavorite({ symbol: fav.symbol, name: fav.name, koreanName: fav.koreanName })}
-          style={styles.favoriteButtonInCard}>
-          <IconSymbol size={20} name="star.fill" color="#FCD34D" />
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
+        <View style={styles.alignItemsEnd}>
+          <Text style={[styles.stockPrice, { color: colors.text }]}>${fav.currentPrice.toFixed(2)}</Text>
+          <View style={styles.stockChangeRow}>
+            <IconSymbol
+              size={12}
+              name={fav.change >= 0 ? 'arrow.up' : 'arrow.down'}
+              color={fav.change >= 0 ? '#10B981' : '#EF4444'}
+            />
+            <Text style={[styles.stockChange, changeColor]}>
+              {fav.change >= 0 ? '+' : ''}
+              {fav.change.toFixed(2)} ({fav.changePercent >= 0 ? '+' : ''}
+              {fav.changePercent.toFixed(2)}%)
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => handleToggleFavorite({ symbol: fav.symbol, name: fav.name, koreanName: fav.koreanName })}
+            style={styles.favoriteButtonInCard}>
+            <IconSymbol size={20} name="star.fill" color="#FCD34D" />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -955,78 +976,78 @@ export default function InvestScreen() {
           const statusBg = { backgroundColor: order.status === 'filled' ? '#10B981' : order.status === 'cancelled' ? '#94A3B8' : '#F59E0B' };
           const typeBg = { backgroundColor: order.type === 'buy' ? '#10B981' : '#EF4444' };
           return (
-          <View
-            key={order.id}
-            style={[styles.card, styles.shadow, cardBg]}>
-            <View style={styles.orderHeader}>
-              <View style={styles.flex1}>
-                <View style={styles.orderTitleRow}>
-                  <Text style={[styles.stockSymbol, { color: colors.text }]}>
-                    {order.stock.symbol.includes(':') ? order.stock.symbol.split(':')[1] : order.stock.symbol}
-                  </Text>
-                  <View
-                    style={[
-                      styles.orderStatusBadge,
-                      statusBg,
-                    ]}>
-                    <Text style={styles.orderStatusText}>
-                      {order.status === 'filled' ? '체결' : order.status === 'cancelled' ? '취소' : '예약'}
+            <View
+              key={order.id}
+              style={[styles.card, styles.shadow, cardBg]}>
+              <View style={styles.orderHeader}>
+                <View style={styles.flex1}>
+                  <View style={styles.orderTitleRow}>
+                    <Text style={[styles.stockSymbol, { color: colors.text }]}>
+                      {order.stock.symbol.includes(':') ? order.stock.symbol.split(':')[1] : order.stock.symbol}
                     </Text>
+                    <View
+                      style={[
+                        styles.orderStatusBadge,
+                        statusBg,
+                      ]}>
+                      <Text style={styles.orderStatusText}>
+                        {order.status === 'filled' ? '체결' : order.status === 'cancelled' ? '취소' : '예약'}
+                      </Text>
+                    </View>
                   </View>
+                  <Text style={[styles.orderTime, { color: colors.icon }]}>
+                    {order.orderTime}  ·  {order.accountName}
+                  </Text>
                 </View>
-                <Text style={[styles.orderTime, { color: colors.icon }]}>
-                  {order.orderTime}  ·  {order.accountName}
-                </Text>
+                <View
+                  style={[styles.orderTypeBadge, typeBg]}>
+                  <Text style={styles.orderTypeText}>{order.type === 'buy' ? '매수' : '매도'}</Text>
+                </View>
               </View>
-              <View
-                style={[styles.orderTypeBadge, typeBg]}>
-                <Text style={styles.orderTypeText}>{order.type === 'buy' ? '매수' : '매도'}</Text>
-              </View>
-            </View>
 
-            <View style={styles.orderDetail}>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: colors.icon }]}>주문가격</Text>
-                <Text style={[styles.detailValue, { color: colors.text }]}>${order.price.toFixed(2)}</Text>
+              <View style={styles.orderDetail}>
+                <View style={styles.detailRow}>
+                  <Text style={[styles.detailLabel, { color: colors.icon }]}>주문가격</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>${order.price.toFixed(2)}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={[styles.detailLabel, { color: colors.icon }]}>주문수량</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>{order.quantity}주</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={[styles.detailLabel, { color: colors.icon }]}>주문금액</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }, styles.fontBold]}>
+                    ${order.totalAmount.toLocaleString()}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: colors.icon }]}>주문수량</Text>
-                <Text style={[styles.detailValue, { color: colors.text }]}>{order.quantity}주</Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: colors.icon }]}>주문금액</Text>
-                <Text style={[styles.detailValue, { color: colors.text }, styles.fontBold]}>
-                  ${order.totalAmount.toLocaleString()}
-                </Text>
-              </View>
-            </View>
 
-            {order.status === 'pending' && (
-              <TouchableOpacity
-                style={[styles.cancelButton, pageBg]}
-                onPress={async () => {
-                  Alert.alert('주문 취소', '정말 이 주문을 취소하시겠습니까?', [
-                    { text: '아니오', style: 'cancel' },
-                    {
-                      text: '예',
-                      onPress: async () => {
-                        try {
-                          await cancelOrder(order.id);
-                          Alert.alert('완료', '주문이 취소되었습니다.');
-                          await fetchOrders(); // 주문 목록 새로고침
-                        } catch (error: any) {
-                          console.error('주문 취소 실패:', error);
-                          const errorMessage = error.response?.data?.message || '주문 취소 중 오류가 발생했습니다.';
-                          Alert.alert('오류', errorMessage);
-                        }
+              {order.status === 'pending' && (
+                <TouchableOpacity
+                  style={[styles.cancelButton, pageBg]}
+                  onPress={async () => {
+                    Alert.alert('주문 취소', '정말 이 주문을 취소하시겠습니까?', [
+                      { text: '아니오', style: 'cancel' },
+                      {
+                        text: '예',
+                        onPress: async () => {
+                          try {
+                            await cancelOrder(order.id);
+                            Alert.alert('완료', '주문이 취소되었습니다.');
+                            await fetchOrders(); // 주문 목록 새로고침
+                          } catch (error: any) {
+                            console.error('주문 취소 실패:', error);
+                            const errorMessage = error.response?.data?.message || '주문 취소 중 오류가 발생했습니다.';
+                            Alert.alert('오류', errorMessage);
+                          }
+                        },
                       },
-                    },
-                  ]);
-                }}>
-                <Text style={[styles.cancelButtonText, styles.colorRed]}>주문 취소</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+                    ]);
+                  }}>
+                  <Text style={[styles.cancelButtonText, styles.colorRed]}>주문 취소</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           );
         })}
 
@@ -1052,7 +1073,7 @@ export default function InvestScreen() {
           const tradeTypeBg = {
             backgroundColor:
               item.tradeType === 'BUY' ? '#EF4444' :
-              item.tradeType === 'SELL' ? '#10B981' : '#6366F1',
+                item.tradeType === 'SELL' ? '#10B981' : '#6366F1',
           };
           return (
             <View
@@ -1278,6 +1299,11 @@ export default function InvestScreen() {
               onPress={handleOrder}>
               <Text style={styles.submitButtonText}>
                 {isBattleNotStarted ? '배틀 시작 전' : `${orderType === 'buy' ? '매수' : '매도'} 주문하기`}
+              style={[styles.submitButton, submitBtnBg, isSubmitting && { opacity: 0.5 }]}
+              onPress={handleOrder}
+              disabled={isSubmitting}>
+              <Text style={styles.submitButtonText}>
+                {isSubmitting ? '처리 중...' : (orderType === 'buy' ? '매수' : '매도') + ' 주문하기'}
               </Text>
             </TouchableOpacity>
 
